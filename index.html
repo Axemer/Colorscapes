@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Gradient Studio</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <aside id="panel">
+    <header class="app-header">
+      <h1>Gradient Studio</h1>
+      <p>WebGL soft-light gradient generator</p>
+    </header>
+
+    <details open>
+      <summary>Shape</summary>
+      <div class="body" id="shape-body"></div>
+    </details>
+
+    <details open>
+      <summary>Main gradient</summary>
+      <div class="body">
+        <div id="main-angle"></div>
+        <div class="stops" id="main-stops"></div>
+        <button class="btn add-stop" data-grad="main">+ Add stop</button>
+      </div>
+    </details>
+
+    <details>
+      <summary>Overlay gradient</summary>
+      <div class="body">
+        <div id="horiz-angle"></div>
+        <div class="stops" id="horiz-stops"></div>
+        <button class="btn add-stop" data-grad="horiz">+ Add stop</button>
+        <div id="mix-ctrl"></div>
+      </div>
+    </details>
+
+    <details>
+      <summary>Background</summary>
+      <div class="body" id="bg-body"></div>
+    </details>
+
+    <details open>
+      <summary>Export</summary>
+      <div class="body" id="export-body"></div>
+    </details>
+
+    <details>
+      <summary>Presets</summary>
+      <div class="body" id="presets-body"></div>
+    </details>
+  </aside>
+
+  <main id="stage">
+    <canvas id="preview"></canvas>
+  </main>
+</div>
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
