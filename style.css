@@ -76,6 +76,16 @@ details > .body{
   color:var(--text-dim);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
+.ctrl-color{grid-template-columns:78px 1fr;}
+.ctrl-color > input[type="color"]{
+  -webkit-appearance:none;appearance:none;
+  width:44px;height:28px;justify-self:end;
+  border:1px solid rgba(255,255,255,0.16);
+  border-radius:7px;background:none;padding:0;cursor:pointer;overflow:hidden;
+}
+.ctrl-color > input[type="color"]::-webkit-color-swatch-wrapper{padding:0;}
+.ctrl-color > input[type="color"]::-webkit-color-swatch{border:none;border-radius:6px;}
+.ctrl-color > input[type="color"]::-moz-color-swatch{border:none;border-radius:6px;}
 
 input[type="range"]{
   -webkit-appearance:none;appearance:none;
@@ -160,10 +170,15 @@ input[type="number"]:focus,input[type="text"]:focus{
 
 /* -------- Export -------- */
 .export-size{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:center;}
-.export-size .lbl{color:var(--text-dim);font-size:11px;}
+.export-size .lbl{color:var(--text-dim);font-size:11px;margin-bottom:4px;}
+.export-size input{text-align:left;}
 
 .preset-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;}
 .preset-grid .btn{padding:6px 4px;font-size:10.5px;text-align:center;}
+
+.section-label{font-size:11px;color:var(--text-dim);}
+.section-label-spaced{margin-top:8px;}
+.preset-empty{font-size:11px;color:var(--text-dim);padding:4px 2px;}
 
 .preset-list{display:flex;flex-direction:column;gap:5px;margin-top:2px;}
 .preset-item{
@@ -203,6 +218,30 @@ input[type="number"]:focus,input[type="text"]:focus{
   box-shadow:0 24px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.05);
   display:block;
 }
+.stage-note{color:#9a9aa1;font-size:13px;}
+
+/* -------- Modal -------- */
+.modal-backdrop{
+  position:fixed;inset:0;z-index:200;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(8,8,10,0.55);
+  backdrop-filter:blur(6px);
+  opacity:0;transition:opacity .18s;
+}
+.modal-backdrop.show{opacity:1;}
+.modal{
+  width:min(340px,86vw);
+  display:flex;flex-direction:column;gap:12px;
+  padding:16px;border-radius:14px;
+  background:rgba(34,34,38,0.96);
+  border:1px solid rgba(255,255,255,0.1);
+  box-shadow:0 24px 60px rgba(0,0,0,0.55);
+  transform:translateY(6px) scale(.985);
+  transition:transform .18s;
+}
+.modal-backdrop.show .modal{transform:none;}
+.modal-title{font-size:13px;font-weight:500;}
+.modal-field input{width:100%;}
 
 /* -------- Toast -------- */
 #toast{

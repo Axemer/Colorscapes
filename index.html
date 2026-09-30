@@ -24,7 +24,7 @@
       <summary>Main gradient</summary>
       <div class="body">
         <div id="main-angle"></div>
-        <div class="stops" id="main-stops"></div>
+        <div class="stops" id="main-stops" data-grad="main"></div>
         <button class="btn add-stop" data-grad="main">+ Add stop</button>
       </div>
     </details>
@@ -33,7 +33,7 @@
       <summary>Overlay gradient</summary>
       <div class="body">
         <div id="horiz-angle"></div>
-        <div class="stops" id="horiz-stops"></div>
+        <div class="stops" id="horiz-stops" data-grad="horiz"></div>
         <button class="btn add-stop" data-grad="horiz">+ Add stop</button>
         <div id="mix-ctrl"></div>
       </div>
@@ -59,7 +59,19 @@
     <canvas id="preview"></canvas>
   </main>
 </div>
-<div id="toast"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="src/namespace.js"></script>
+<script src="src/utils.js"></script>
+<script src="src/color.js"></script>
+<script src="src/gradient.js"></script>
+<script src="src/shaders.js"></script>
+<script src="src/renderer.js"></script>
+<script src="src/state.js"></script>
+<script src="src/storage.js"></script>
+<script src="src/ui.js"></script>
+<script src="src/preview.js"></script>
+<script src="src/share.js"></script>
+<script src="src/exporter.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
