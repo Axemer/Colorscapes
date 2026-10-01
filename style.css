@@ -26,14 +26,19 @@ html,body{
   backdrop-filter:blur(40px) saturate(180%);
   -webkit-backdrop-filter:blur(40px) saturate(180%);
   border-right:1px solid var(--panel-border);
-  overflow-y:auto;
+  overflow-y:scroll;
   padding:20px 16px 48px;
   display:flex;flex-direction:column;gap:10px;
+  min-height:0;
+  overscroll-behavior:contain;
+  scrollbar-gutter:stable;
   scrollbar-width:thin;
   scrollbar-color:rgba(255,255,255,0.15) transparent;
 }
 #panel::-webkit-scrollbar{width:8px;}
+#panel::-webkit-scrollbar-track{background:transparent;}
 #panel::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.12);border-radius:4px;}
+#panel::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.22);}
 
 .app-header{padding:4px 4px 8px;}
 .app-header h1{margin:0;font-size:16px;font-weight:600;letter-spacing:-0.01em;}
@@ -123,9 +128,43 @@ input[type="number"]:focus,input[type="text"]:focus{
 /* -------- Stops -------- */
 .stops{display:flex;flex-direction:column;gap:6px;}
 .stop{
-  display:grid;grid-template-columns:30px 1fr 40px 24px;
-  align-items:center;gap:6px;
+  display:grid;
+  grid-template-columns:15px 26px 1fr 38px 20px;
+  grid-template-rows:auto auto;
+  align-items:center;
+  gap:3px 6px;
+  padding:5px 6px;
+  border-radius:9px;
+  background:var(--control-bg);
+  border:1px solid transparent;
+  transition:background .12s,border-color .12s,opacity .12s;
 }
+.stop:hover{background:var(--control-bg-hover);}
+
+/* Two lines per stop: position on top, region size below. */
+.stop .grip{grid-area:1/1/3/2;}
+.stop .stop-color{grid-area:1/2/3/3;}
+.stop .pos-range{grid-area:1/3/2/4;}
+.stop .pos{grid-area:1/4/2/5;}
+.stop .size-range{grid-area:2/3/3/4;}
+.stop .size{grid-area:2/4/3/5;}
+.stop .del{grid-area:1/5/3/6;}
+
+.stop .grip{
+  width:15px;height:20px;
+  cursor:grab;touch-action:none;
+  color:var(--text-dim);
+  background-image:radial-gradient(circle at 50% 50%, currentColor 1px, transparent 1.3px);
+  background-size:5px 5px;
+}
+.stop .grip:hover{color:var(--text);}
+.stop.dragging{cursor:grabbing;}
+.stop.dragging .grip{cursor:grabbing;color:var(--text);}
+.stop.dragging{opacity:.4;}
+
+.stop.drop-before{box-shadow:inset 0 2px 0 rgba(255,255,255,0.6);}
+.stop.drop-after{box-shadow:inset 0 -2px 0 rgba(255,255,255,0.6);}
+
 .stop input[type="color"]{
   -webkit-appearance:none;appearance:none;
   width:26px;height:26px;
@@ -135,18 +174,21 @@ input[type="number"]:focus,input[type="text"]:focus{
 .stop input[type="color"]::-webkit-color-swatch-wrapper{padding:0;}
 .stop input[type="color"]::-webkit-color-swatch{border:none;border-radius:6px;}
 .stop input[type="color"]::-moz-color-swatch{border:none;border-radius:6px;}
-.stop .pos{
+.stop .pos,.stop .size{
   font-size:10.5px;color:var(--text-dim);
   text-align:right;font-variant-numeric:tabular-nums;
 }
+.stop .size{color:rgba(154,154,161,0.7);}
+.stop .size.off{opacity:.45;}
 .stop .del{
-  width:22px;height:22px;border-radius:6px;border:none;
+  width:20px;height:20px;border-radius:6px;border:none;
   background:transparent;color:var(--text-dim);cursor:pointer;
   font-size:16px;line-height:1;padding:0;
   display:flex;align-items:center;justify-content:center;
 }
 .stop .del:hover:not(:disabled){background:rgba(255,80,80,0.16);color:#ff7676;}
 .stop .del:disabled{opacity:0.28;cursor:not-allowed;}
+.stop input[type="range"]:disabled{opacity:.35;cursor:not-allowed;}
 
 /* -------- Buttons -------- */
 .btn{
@@ -262,8 +304,181 @@ input[type="number"]:focus,input[type="text"]:focus{
 @media (max-width: 820px){
   #app{grid-template-columns:1fr;grid-template-rows:auto 1fr;}
   #panel{
-    max-height:52vh;border-right:none;
+    max-height:52vh;min-height:0;border-right:none;
     border-bottom:1px solid var(--panel-border);
   }
   #stage{min-height:48vh;}
+}
+
+/* ---------- Layout editor ---------- */
+
+.layout-canvas-wrap {
+  padding: 2px 0 6px;
+  display: flex;
+  justify-content: center;
+}
+
+#layout-canvas {
+  display: block;
+  border-radius: 10px;
+  cursor: crosshair;
+  touch-action: none;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.06);
+}
+
+/* ---------- Shapes list ---------- */
+
+.shape-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.shape-item {
+  display: grid;
+  grid-template-columns: 22px 1fr auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: var(--control-bg);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+.shape-item:hover { background: var(--control-bg-hover); }
+.shape-item.selected {
+  background: rgba(255,255,255,0.13);
+  border-color: rgba(255,255,255,0.28);
+}
+.shape-item .swatch-mini {
+  width: 20px; height: 20px;
+  border-radius: 5px;
+  border: 1px solid rgba(255,255,255,0.10);
+}
+.shape-item .name {
+  font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.shape-item .icon-btn {
+  width: 22px; height: 22px;
+  border: none; background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: 5px;
+  padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; line-height: 1;
+  transition: background .12s, color .12s;
+}
+.shape-item .icon-btn:hover {
+  background: rgba(255,255,255,0.10);
+  color: var(--text);
+}
+.shape-item .icon-btn.off { opacity: 0.35; }
+
+.shape-list-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* ---------- Blend selector ---------- */
+
+select.blend-select {
+  background: var(--control-bg);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 5px 24px 5px 8px;
+  font-size: 11.5px;
+  font-family: inherit;
+  width: 100%;
+  cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-dim) 50%),
+    linear-gradient(135deg, var(--text-dim) 50%, transparent 50%);
+  background-position: calc(100% - 12px) center, calc(100% - 8px) center;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+}
+select.blend-select:focus {
+  outline: none;
+  border-color: rgba(255,255,255,0.32);
+  background-color: var(--control-bg-hover);
+}
+
+/* ---------- Panel: no compression when all sections are open ----------
+   #panel is a flex column of fixed-height sections. Without this
+   every <details> shrinks to fit the viewport and `overflow:hidden`
+   then clips the controls, so nothing is visible and no scrollbar
+   appears. Pinning the children keeps their natural height and lets
+   the panel overflow (and scroll) instead. */
+
+#panel > *,
+details > .body > *,
+.stops > *{flex-shrink:0;}
+
+/* ---------- Gradient strip editor ---------- */
+
+.grad-strip-wrap {
+  position: relative;
+  height: 54px;
+  margin: 4px 0 8px;
+}
+
+.grad-strip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 30px;
+  border-radius: 7px;
+  border: 1px solid rgba(255,255,255,0.14);
+  cursor: crosshair;
+  touch-action: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 2px 8px rgba(0,0,0,0.35);
+  background: #111;
+}
+
+.grad-handles {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 54px;
+  pointer-events: none;
+}
+
+.stop-handle {
+  position: absolute;
+  top: 34px;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.55);
+  transition: transform .08s;
+}
+.stop-handle::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  width: 1px;
+  height: 4px;
+  background: rgba(255,255,255,0.55);
+  transform: translateX(-50%);
+}
+.stop-handle:hover { transform: scale(1.1); }
+.stop-handle.active {
+  transform: scale(1.2);
+  box-shadow: 0 0 0 3px rgba(255,255,255,0.22), 0 2px 6px rgba(0,0,0,0.55);
+  cursor: grabbing;
 }

@@ -1,9 +1,9 @@
 /* =========================================================
    WebGL Renderer
-   One context, one program, one fullscreen quad, two 1D gradient
-   textures. Gradients are baked on the CPU and uploaded as 1024x1.
-   Note: GL objects belong to their context, so a second Renderer
-   (used for export) needs its own context, buffer and textures.
+   One context, one program, one fullscreen quad. Shapes are
+   drawn back-to-front with per-shape blend modes into an
+   opaque framebuffer; the background is a clear colour.
+   Gradient textures are pooled and reused across draws.
    ========================================================= */
 
 (function (GS) {
@@ -15,9 +15,8 @@
 
   const GRAD_TEX_WIDTH = 1024;
   const UNIFORMS = [
-    'u_resolution', 'u_center', 'u_size', 'u_shapeAngle', 'u_roundness', 'u_softness',
-    'u_glow', 'u_bg', 'u_mainTex', 'u_horizTex', 'u_mainAngle', 'u_horizAngle',
-    'u_mainExtent', 'u_horizExtent', 'u_mix',
+    'u_resolution', 'u_center', 'u_size', 'u_shapeAngle', 'u_roundness',
+    'u_softness', 'u_glow', 'u_opacity', 'u_gradTex', 'u_gradAngle', 'u_gradExtent',
   ];
 
   function getContext(canvas, preserveDrawingBuffer) {
@@ -59,6 +58,23 @@
     return program;
   }
 
+  /* Approximations of the four blend modes we expose. */
+  function applyBlend(gl, mode) {
+    switch (mode) {
+      case 'add':
+        gl.blendFunc(gl.ONE, gl.ONE);
+        break;
+      case 'screen':
+        gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_COLOR);
+        break;
+      case 'multiply':
+        gl.blendFunc(gl.DST_COLOR, gl.ONE_MINUS_SRC_ALPHA);
+        break;
+      default:
+        gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    }
+  }
+
   class Renderer {
     constructor(canvas, preserveDrawingBuffer) {
       this.canvas = canvas;
@@ -74,9 +90,13 @@
       });
 
       this._attachQuad();
-      this.mainTex = this._createTexture();
-      this.horizTex = this._createTexture();
+
+      this._texPool = [];
+      this._texCursor = 0;
       this._gradData = new Uint8Array(GRAD_TEX_WIDTH * 4);
+
+      gl.disable(gl.DEPTH_TEST);
+      gl.enable(gl.BLEND);
     }
 
     _attachQuad() {
@@ -103,14 +123,19 @@
       return tex;
     }
 
-    /* Bakes stops into the shared scratch buffer, then uploads it. */
+    _nextTexture() {
+      const idx = this._texCursor++;
+      if (!this._texPool[idx]) this._texPool[idx] = this._createTexture();
+      return this._texPool[idx];
+    }
+
     _uploadGradient(tex, stops) {
       const gl = this.gl;
       const data = this._gradData;
       const sorted = sortStops(stops);
       for (let i = 0; i < GRAD_TEX_WIDTH; i++) {
         const c = sampleStops(sorted, i / (GRAD_TEX_WIDTH - 1));
-        data[i * 4] = Math.round(c[0]);
+        data[i * 4]     = Math.round(c[0]);
         data[i * 4 + 1] = Math.round(c[1]);
         data[i * 4 + 2] = Math.round(c[2]);
         data[i * 4 + 3] = 255;
@@ -119,39 +144,35 @@
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, GRAD_TEX_WIDTH, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
     }
 
-    _uploadShape(state) {
-      const gl = this.gl;
-      const s = state.shape;
-      const u = this.u;
-
-      gl.uniform2f(u.u_center, s.centerX, s.centerY);
-      gl.uniform2f(u.u_size, s.width, s.height);
-      gl.uniform1f(u.u_shapeAngle, deg2rad(s.angle));
-      gl.uniform1f(u.u_roundness, s.roundness);
-      gl.uniform1f(u.u_softness, s.softness);
-      gl.uniform1f(u.u_glow, s.glow);
-    }
-
-    _uploadGradients(state, aspect) {
+    _drawShape(shape, aspect) {
       const gl = this.gl;
       const u = this.u;
-      const { main, horiz, mix } = state;
 
-      this._uploadGradient(this.mainTex, main.stops);
-      this._uploadGradient(this.horizTex, horiz.stops);
+      applyBlend(gl, shape.blend);
 
-      gl.uniform1f(u.u_mainAngle, deg2rad(main.angle));
-      gl.uniform1f(u.u_horizAngle, deg2rad(horiz.angle));
-      gl.uniform1f(u.u_mainExtent, computeExtent(aspect, state.shape, main.angle));
-      gl.uniform1f(u.u_horizExtent, computeExtent(aspect, state.shape, horiz.angle));
-      gl.uniform1f(u.u_mix, clamp(mix, 0, 1));
-    }
+      gl.uniform2f(u.u_center, shape.x, shape.y);
+      gl.uniform2f(u.u_size, shape.w, shape.h);
+      gl.uniform1f(u.u_shapeAngle, deg2rad(shape.rot));
+      gl.uniform1f(u.u_roundness, shape.roundness);
+      gl.uniform1f(u.u_softness, shape.softness);
+      gl.uniform1f(u.u_glow, shape.glow);
+      gl.uniform1f(u.u_opacity, clamp(shape.opacity, 0, 1));
 
-    _bindTexture(unit, tex, uniform) {
-      const gl = this.gl;
-      gl.activeTexture(gl.TEXTURE0 + unit);
+      const grad = shape.gradient;
+      const tex = this._nextTexture();
+      this._uploadGradient(tex, grad.stops);
+
+      const extentShape = { width: shape.w, height: shape.h, angle: shape.rot };
+      const extent = computeExtent(aspect, extentShape, grad.angle);
+
+      gl.uniform1f(u.u_gradAngle, deg2rad(grad.angle));
+      gl.uniform1f(u.u_gradExtent, extent);
+
+      gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, tex);
-      gl.uniform1i(this.u[uniform], unit);
+      gl.uniform1i(u.u_gradTex, 0);
+
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
     render(state, width, height) {
@@ -166,17 +187,18 @@
       gl.useProgram(this.program);
       gl.uniform2f(this.u.u_resolution, width, height);
 
-      const aspect = width / height;
-      this._uploadShape(state);
-      this._uploadGradients(state, aspect);
-
       const bg = hexToRgb01(state.background);
-      gl.uniform3f(this.u.u_bg, bg[0], bg[1], bg[2]);
+      gl.clearColor(bg[0], bg[1], bg[2], 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
 
-      this._bindTexture(0, this.mainTex, 'u_mainTex');
-      this._bindTexture(1, this.horizTex, 'u_horizTex');
+      const aspect = width / height;
+      this._texCursor = 0;
 
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      for (const shape of state.shapes) {
+        if (!shape.visible) continue;
+        if (shape.opacity <= 0) continue;
+        this._drawShape(shape, aspect);
+      }
     }
   }
 

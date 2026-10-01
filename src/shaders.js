@@ -1,7 +1,8 @@
 /* =========================================================
    Shaders
-   Fullscreen-quad pass: superellipse mask, two gradient textures
-   mixed and composited over a flat background, dithered.
+   Single-shape pass. Renders one superellipse with a 1D
+   gradient modulated along its own axis, outputs premultiplied
+   alpha so the renderer can composite shapes with blendFunc.
    ========================================================= */
 
 (function (GS) {
@@ -29,15 +30,11 @@ uniform float u_shapeAngle;
 uniform float u_roundness;
 uniform float u_softness;
 uniform float u_glow;
-uniform vec3  u_bg;
+uniform float u_opacity;
 
-uniform sampler2D u_mainTex;
-uniform sampler2D u_horizTex;
-uniform float u_mainAngle;
-uniform float u_horizAngle;
-uniform float u_mainExtent;
-uniform float u_horizExtent;
-uniform float u_mix;
+uniform sampler2D u_gradTex;
+uniform float u_gradAngle;
+uniform float u_gradExtent;
 
 float rand(vec2 co){
   return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
@@ -47,7 +44,7 @@ void main(){
   float aspect = u_resolution.x / u_resolution.y;
   vec2 uv = v_uv;
 
-  /* ---------- Shape mask (superellipse) ---------- */
+  /* ---------- Superellipse in aspect-corrected space ---------- */
   vec2 p = (uv - u_center) * vec2(aspect, 1.0);
 
   float ca = cos(u_shapeAngle);
@@ -57,35 +54,43 @@ void main(){
   vec2 half_size = max(u_size * 0.5 * vec2(aspect, 1.0), vec2(1e-6));
   vec2 d = abs(rp) / half_size;
 
-  float r = max(u_roundness, 1.001);
-  float dist = pow(pow(d.x, r) + pow(d.y, r), 1.0 / r);
+  float r  = max(u_roundness, 1.001);
+  float dx = max(d.x, 1e-6);
+  float dy = max(d.y, 1e-6);
+  float dist = pow(pow(dx, r) + pow(dy, r), 1.0 / r);
 
-  float soft = max(u_softness, 0.001);
-  float mask = 1.0 - smoothstep(1.0 - soft, 1.0 + soft, dist);
-  mask = clamp(mask, 0.0, 1.0);
+  /* Local |grad dist| in image space. Normalising the softness
+     by it makes the falloff width direction-independent, so
+     elongated shapes get the same visual edge softness on every
+     side instead of a wide flat falloff on the long axis. */
+  float inner   = pow(dx, r) + pow(dy, r);
+  float inner_p = pow(max(inner, 1e-6), 1.0 / r - 1.0);
+  vec2 grad = vec2(
+    inner_p * pow(dx, r - 1.0) * sign(rp.x) / half_size.x,
+    inner_p * pow(dy, r - 1.0) * sign(rp.y) / half_size.y
+  );
+  float gradMag = max(length(grad), 1e-6);
 
-  /* ---------- Main gradient ---------- */
-  vec2 mainDir = vec2(cos(u_mainAngle), sin(u_mainAngle));
-  float tMainRaw = dot(uv - u_center, mainDir);
-  float tMain = clamp(tMainRaw / max(u_mainExtent, 1e-6) * 0.5 + 0.5, 0.0, 1.0);
-  vec3 cMain = texture2D(u_mainTex, vec2(tMain, 0.5)).rgb;
+  float minHalf   = max(0.5 * min(u_size.x * aspect, u_size.y), 0.01);
+  float softImage = max(u_softness, 0.001) * minHalf;
+  float softLoc   = clamp(softImage * gradMag, 0.005, 3.0);
 
-  /* ---------- Overlay gradient ---------- */
-  vec2 hDir = vec2(cos(u_horizAngle), sin(u_horizAngle));
-  float tHorizRaw = dot(uv - u_center, hDir);
-  float tHoriz = clamp(tHorizRaw / max(u_horizExtent, 1e-6) * 0.5 + 0.5, 0.0, 1.0);
-  vec3 cHoriz = texture2D(u_horizTex, vec2(tHoriz, 0.5)).rgb;
+  /* Quintic smootherstep: gentler in/out than the cubic smoothstep,
+     removes the faint corner it leaves in the alpha ramp. */
+  float tt = clamp((dist - (1.0 - softLoc)) / (2.0 * softLoc), 0.0, 1.0);
+  float st = tt * tt * tt * (tt * (tt * 6.0 - 15.0) + 10.0);
+  float mask = 1.0 - st;
 
-  vec3 color = mix(cMain, cHoriz, u_mix) * u_glow;
+  /* ---------- Gradient along the shape's own axis ---------- */
+  vec2 gDir = vec2(cos(u_gradAngle), sin(u_gradAngle));
+  float tRaw = dot(uv - u_center, gDir);
+  float gpos = clamp(tRaw / max(u_gradExtent, 1e-6) * 0.5 + 0.5, 0.0, 1.0);
+  vec3 color = texture2D(u_gradTex, vec2(gpos, 0.5)).rgb * u_glow;
 
-  /* ---------- Composite ---------- */
-  vec3 outColor = mix(u_bg, color, mask);
+  color += (rand(gl_FragCoord.xy) - 0.5) / 255.0;
 
-  /* Dithering against banding */
-  float n = rand(gl_FragCoord.xy) - 0.5;
-  outColor += n / 255.0;
-
-  gl_FragColor = vec4(outColor, 1.0);
+  float alpha = mask * u_opacity;
+  gl_FragColor = vec4(color * alpha, alpha);
 }
 `;
 

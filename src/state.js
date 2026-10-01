@@ -1,8 +1,10 @@
 /* =========================================================
    State
-   GS.state is the single live, mutable app state. applyState()
-   normalises any untrusted object (hash, preset, random) into it,
-   in place, so every reference stays valid.
+   GS.state is the single live, mutable app state. Schema v2:
+   an ordered list of shapes, each carrying its own gradient,
+   transform and blend mode. applyState() normalises any
+   untrusted object (hash, preset, random) into it in place,
+   including migrating v1 single-shape states transparently.
    ========================================================= */
 
 (function (GS) {
@@ -11,62 +13,97 @@
   const { clamp, clone } = GS.utils;
   const { isHex, hslToHex } = GS.color;
 
+  const BLEND_MODES = ['normal', 'add', 'screen', 'multiply'];
+
+  const DEFAULT_GRADIENT = {
+    angle: 90,
+    stops: [
+      { pos: 0.00, color: '#0b1e4f' },
+      { pos: 0.22, color: '#1e6bb8' },
+      { pos: 0.46, color: '#6ad4c8' },
+      { pos: 0.68, color: '#c8e88a' },
+      { pos: 0.85, color: '#f0d060' },
+      { pos: 1.00, color: '#f0a050' },
+    ],
+  };
+
+  const DEFAULT_SHAPE = {
+    x: 0.5, y: 0.5,
+    w: 0.62, h: 0.30,
+    rot: 0,
+    roundness: 2.2,
+    softness: 0.65,
+    glow: 1.0,
+    opacity: 1.0,
+    visible: true,
+    blend: 'normal',
+    gradient: DEFAULT_GRADIENT,
+  };
+
   const DEFAULT_STATE = {
-    shape: {
-      width: 0.62, height: 0.30,
-      centerX: 0.5, centerY: 0.5,
-      angle: 0,
-      roundness: 2.2,
-      softness: 0.65,
-      glow: 1.0,
-    },
-    main: {
-      angle: 90,
-      stops: [
-        { pos: 0.00, color: '#0b1e4f' },
-        { pos: 0.22, color: '#1e6bb8' },
-        { pos: 0.46, color: '#6ad4c8' },
-        { pos: 0.68, color: '#c8e88a' },
-        { pos: 0.85, color: '#f0d060' },
-        { pos: 1.00, color: '#f0a050' },
-      ],
-    },
-    horiz: {
-      angle: 0,
-      stops: [
-        { pos: 0.0, color: '#ffffff' },
-        { pos: 1.0, color: '#000000' },
-      ],
-    },
-    mix: 0.0,
+    shapes: [clone(DEFAULT_SHAPE)],
     background: '#000000',
     exportW: 1920,
     exportH: 1080,
   };
 
-  const WHITE_TO_BLACK = [
-    { pos: 0, color: '#ffffff' },
-    { pos: 1, color: '#000000' },
-  ];
-
+  /* Built-in presets are stored in the modern shape-list format.
+     Migration below also accepts the old shape/main/horiz/mix
+     schema, so external hashes from before the upgrade keep working. */
   const BUILTIN_PRESETS = [
+    {
+  name: 'Neon Sunset',
+  state: {
+    shapes: [{
+      id: 'neon-sunset',
+      x: 0.5, y: 0.5,
+      w: 0.86, h: 0.94,
+      rot: 0,
+      roundness: 3.2,
+      softness: 0.24,
+      glow: 1.0,
+      opacity: 1.0,
+      visible: true,
+      blend: 'normal',
+      gradient: {
+        angle: 90,
+        stops: [
+          { pos: 0.00, color: '#dc2814' },
+          { pos: 0.15, color: '#e64514' },
+          { pos: 0.35, color: '#f58520' },
+          { pos: 0.47, color: '#ffb860' },
+          { pos: 0.53, color: '#f0c8b8' },
+          { pos: 0.57, color: '#a0c4f0' },
+          { pos: 0.65, color: '#4888ee' },
+          { pos: 0.80, color: '#3a58d4' },
+          { pos: 1.00, color: '#321ea0' },
+        ],
+      },
+    }],
+    background: '#000000',
+    exportW: 1920,
+    exportH: 1080,
+  },
+},
     {
       name: 'Cold Aurora',
       state: {
-        shape: { width: 0.66, height: 0.34, centerX: 0.5, centerY: 0.5, angle: 0, roundness: 2.4, softness: 0.7, glow: 1.05 },
-        main: {
-          angle: 90,
-          stops: [
-            { pos: 0.00, color: '#0a1a4a' },
-            { pos: 0.22, color: '#2a6bb5' },
-            { pos: 0.45, color: '#8ce0d4' },
-            { pos: 0.66, color: '#c8e8a0' },
-            { pos: 0.86, color: '#e8e070' },
-            { pos: 1.00, color: '#f0a860' },
-          ],
-        },
-        horiz: { angle: 0, stops: WHITE_TO_BLACK },
-        mix: 0.0,
+        shapes: [{
+          x: 0.5, y: 0.5, w: 0.66, h: 0.34, rot: 0,
+          roundness: 2.4, softness: 0.7, glow: 1.05,
+          opacity: 1.0, visible: true, blend: 'normal',
+          gradient: {
+            angle: 90,
+            stops: [
+              { pos: 0.00, color: '#0a1a4a' },
+              { pos: 0.22, color: '#2a6bb5' },
+              { pos: 0.45, color: '#8ce0d4' },
+              { pos: 0.66, color: '#c8e8a0' },
+              { pos: 0.86, color: '#e8e070' },
+              { pos: 1.00, color: '#f0a860' },
+            ],
+          },
+        }],
         background: '#000000',
         exportW: 1920, exportH: 1080,
       },
@@ -74,31 +111,37 @@
     {
       name: 'Warm Bloom',
       state: {
-        shape: { width: 0.66, height: 0.34, centerX: 0.5, centerY: 0.5, angle: 0, roundness: 2.4, softness: 0.7, glow: 1.05 },
-        main: {
-          angle: 90,
-          stops: [
-            { pos: 0.00, color: '#ff8c1a' },
-            { pos: 0.25, color: '#ff4f2e' },
-            { pos: 0.50, color: '#ff2d8a' },
-            { pos: 0.76, color: '#7a2ad4' },
-            { pos: 1.00, color: '#0a1050' },
-          ],
-        },
-        horiz: { angle: 0, stops: WHITE_TO_BLACK },
-        mix: 0.0,
+        shapes: [{
+          x: 0.5, y: 0.5, w: 0.66, h: 0.34, rot: 0,
+          roundness: 2.4, softness: 0.7, glow: 1.05,
+          opacity: 1.0, visible: true, blend: 'normal',
+          gradient: {
+            angle: 90,
+            stops: [
+              { pos: 0.00, color: '#ff8c1a' },
+              { pos: 0.25, color: '#ff4f2e' },
+              { pos: 0.50, color: '#ff2d8a' },
+              { pos: 0.76, color: '#7a2ad4' },
+              { pos: 1.00, color: '#0a1050' },
+            ],
+          },
+        }],
         background: '#000000',
         exportW: 1920, exportH: 1080,
       },
     },
   ];
 
+  /* ---------- helpers ---------- */
+
+  function num(v, fb) { return typeof v === 'number' && isFinite(v) ? v : fb; }
+
   function blankState() {
-    return { shape: {}, main: {}, horiz: {}, mix: 0, background: '', exportW: 0, exportH: 0 };
+    return { shapes: [], background: '', exportW: 0, exportH: 0 };
   }
 
-  function num(value, fallback) {
-    return typeof value === 'number' && isFinite(value) ? value : fallback;
+  function makeId() {
+    return 's' + Math.random().toString(36).slice(2, 9);
   }
 
   function normaliseStops(stops, fallback) {
@@ -117,22 +160,73 @@
     };
   }
 
-  /* Merges an arbitrary object into target, filling gaps from the defaults. */
-  function normaliseInto(target, raw) {
+  function normaliseShape(raw) {
     const src = raw && typeof raw === 'object' ? raw : {};
-    const shape = src.shape && typeof src.shape === 'object' ? src.shape : {};
+    return {
+      id: typeof src.id === 'string' && src.id ? src.id : makeId(),
+      x: num(src.x, DEFAULT_SHAPE.x),
+      y: num(src.y, DEFAULT_SHAPE.y),
+      w: Math.max(0.001, num(src.w, DEFAULT_SHAPE.w)),
+      h: Math.max(0.001, num(src.h, DEFAULT_SHAPE.h)),
+      rot: num(src.rot, DEFAULT_SHAPE.rot),
+      roundness: Math.max(1.001, num(src.roundness, DEFAULT_SHAPE.roundness)),
+      softness: Math.max(0.001, num(src.softness, DEFAULT_SHAPE.softness)),
+      glow: num(src.glow, DEFAULT_SHAPE.glow),
+      opacity: clamp(num(src.opacity, DEFAULT_SHAPE.opacity), 0, 1),
+      visible: src.visible !== false,
+      blend: BLEND_MODES.includes(src.blend) ? src.blend : DEFAULT_SHAPE.blend,
+      gradient: normaliseGradient(src.gradient, DEFAULT_GRADIENT),
+    };
+  }
 
-    Object.keys(DEFAULT_STATE.shape).forEach(key => {
-      target.shape[key] = num(shape[key], DEFAULT_STATE.shape[key]);
-    });
+  /* v1 (shape/main/horiz/mix) → v2 (shapes[]). */
+  function migrateLegacy(src) {
+    if (!src || typeof src !== 'object') return null;
+    if (Array.isArray(src.shapes)) return src;
+    if (!src.shape || !src.main) return null;
 
-    target.main = normaliseGradient(src.main, DEFAULT_STATE.main);
-    target.horiz = normaliseGradient(src.horiz, DEFAULT_STATE.horiz);
-    target.mix = clamp(num(src.mix, DEFAULT_STATE.mix), 0, 1);
+    const legacy = src.shape;
+    const base = {
+      x: num(legacy.centerX, 0.5),
+      y: num(legacy.centerY, 0.5),
+      w: num(legacy.width, 0.62),
+      h: num(legacy.height, 0.30),
+      rot: num(legacy.angle, 0),
+      roundness: num(legacy.roundness, 2.2),
+      softness: num(legacy.softness, 0.65),
+      glow: num(legacy.glow, 1.0),
+      opacity: 1.0,
+      visible: true,
+      blend: 'normal',
+      gradient: src.main,
+    };
+
+    const shapes = [base];
+    const mix = clamp(num(src.mix, 0), 0, 1);
+    if (mix > 0.0001 && src.horiz) {
+      shapes.push({ ...base, gradient: src.horiz, opacity: mix });
+    }
+
+    return {
+      shapes,
+      background: src.background,
+      exportW: src.exportW,
+      exportH: src.exportH,
+    };
+  }
+
+  function normaliseInto(target, raw) {
+    const migrated = migrateLegacy(raw) || (raw && typeof raw === 'object' ? raw : {});
+    const src = migrated;
+
+    const list = Array.isArray(src.shapes) && src.shapes.length > 0
+      ? src.shapes.map(normaliseShape)
+      : [normaliseShape({})];
+
+    target.shapes = list;
     target.background = isHex(src.background) ? src.background : DEFAULT_STATE.background;
     target.exportW = Math.max(1, Math.round(num(src.exportW, DEFAULT_STATE.exportW)));
     target.exportH = Math.max(1, Math.round(num(src.exportH, DEFAULT_STATE.exportH)));
-
     return target;
   }
 
@@ -140,46 +234,89 @@
     return normaliseInto(GS.state, raw);
   }
 
-  /* Hue-ramped gradient, brighter in the middle, plus a wild shape. */
-  function randomState() {
+  /* Hue-ramped gradient, brighter in the middle, reusable for
+     freshly-added shapes so they don't clone the selected one. */
+  function randomGradient() {
     const baseHue = Math.random() * 360;
     const hueSpread = 60 + Math.random() * 180;
     const count = 4 + Math.floor(Math.random() * 3);
-
     const stops = [];
-    for (let i = 0; i < count; i++) {
-      const t = i / (count - 1);
+    for (let j = 0; j < count; j++) {
+      const t = j / (count - 1);
       stops.push({
         pos: t,
-        color: hslToHex(baseHue + hueSpread * t, 55 + Math.random() * 35, 22 + 45 * Math.sin(t * Math.PI)),
+        color: hslToHex(
+          baseHue + hueSpread * t,
+          55 + Math.random() * 35,
+          22 + 45 * Math.sin(t * Math.PI),
+        ),
       });
     }
+    return { angle: Math.floor(Math.random() * 360), stops };
+  }
 
-    const next = clone(DEFAULT_STATE);
-    next.main = { angle: 90, stops };
-    next.shape.width = 0.5 + Math.random() * 0.3;
-    next.shape.height = 0.2 + Math.random() * 0.25;
-    next.shape.roundness = 2 + Math.random() * 2.5;
-    next.shape.softness = 0.45 + Math.random() * 0.5;
-    next.shape.angle = (Math.random() - 0.5) * 30;
-    next.mix = Math.random() < 0.3 ? Math.random() * 0.25 : 0;
-    if (next.mix > 0) {
-      const hue = baseHue + 180;
-      next.horiz = {
-        angle: 0,
-        stops: [
-          { pos: 0, color: hslToHex(hue, 60, 75) },
-          { pos: 1, color: hslToHex(hue, 70, 25) },
-        ],
-      };
+  /* A brand-new shape: geometry and gradient are both generated,
+     so "+ Add shape" never looks like "Duplicate". `at` pins the
+     centre (layout-canvas double click), otherwise it is random. */
+  function randomShape(at) {
+    const s = clone(DEFAULT_SHAPE);
+    s.id = makeId();
+    s.x = at ? clamp(at.u, -0.3, 1.3) : 0.2 + Math.random() * 0.6;
+    s.y = at ? clamp(at.v, -0.3, 1.3) : 0.22 + Math.random() * 0.56;
+    s.w = 0.24 + Math.random() * 0.46;
+    s.h = 0.14 + Math.random() * 0.28;
+    s.rot = (Math.random() - 0.5) * 36;
+    s.roundness = 1.6 + Math.random() * 3.2;
+    s.softness = 0.4 + Math.random() * 0.6;
+    s.opacity = 1;
+    s.blend = 'normal';
+    s.gradient = randomGradient();
+    return normaliseShape(s);
+  }
+
+  /* 1–3 shapes, each with its own hue-ramped gradient. */
+  function randomState() {
+    const count = 1 + Math.floor(Math.random() * 3);
+    const shapes = [];
+
+    for (let i = 0; i < count; i++) {
+      const s = randomShape();
+      if (i > 0) s.blend = Math.random() < 0.5 ? 'screen' : 'add';
+      shapes.push(s);
     }
 
-    return normaliseInto(blankState(), next);
+    return normaliseInto(blankState(), {
+      shapes,
+      background: '#000000',
+      exportW: 1920,
+      exportH: 1080,
+    });
   }
+
+  /* ---------- selection (UI state, not persisted) ---------- */
+
+  GS.selection = { id: null };
+
+  GS.getSelectedShape = function () {
+    if (!GS.selection.id) return null;
+    return GS.state.shapes.find(s => s.id === GS.selection.id) || null;
+  };
+
+  GS.ensureSelection = function () {
+    if (!GS.state.shapes.length) { GS.selection.id = null; return; }
+    if (!GS.state.shapes.some(s => s.id === GS.selection.id)) {
+      GS.selection.id = GS.state.shapes[0].id;
+    }
+  };
 
   GS.state = normaliseInto(blankState(), DEFAULT_STATE);
   GS.applyState = applyState;
   GS.randomState = randomState;
+  GS.randomShape = randomShape;
   GS.DEFAULT_STATE = DEFAULT_STATE;
+  GS.DEFAULT_GRADIENT = DEFAULT_GRADIENT;
+  GS.DEFAULT_SHAPE = DEFAULT_SHAPE;
   GS.BUILTIN_PRESETS = BUILTIN_PRESETS;
+  GS.BLEND_MODES = BLEND_MODES;
+  GS.makeShapeId = makeId;
 })(window.GS);

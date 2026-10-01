@@ -16,26 +16,40 @@
     </header>
 
     <details open>
-      <summary>Shape</summary>
+      <summary>Layout</summary>
+      <div class="body">
+        <div class="layout-canvas-wrap">
+          <canvas id="layout-canvas"></canvas>
+        </div>
+      </div>
+    </details>
+
+    <details open>
+      <summary>Shapes</summary>
+      <div class="body">
+        <div id="shapes-list" class="shape-list"></div>
+        <div class="shape-list-actions">
+          <button class="btn" id="add-shape-btn" type="button">+ Add shape</button>
+          <button class="btn" id="duplicate-shape-btn" type="button">Duplicate</button>
+        </div>
+      </div>
+    </details>
+
+    <details open>
+      <summary>Selected shape</summary>
       <div class="body" id="shape-body"></div>
     </details>
 
     <details open>
-      <summary>Main gradient</summary>
+      <summary>Gradient</summary>
       <div class="body">
-        <div id="main-angle"></div>
-        <div class="stops" id="main-stops" data-grad="main"></div>
-        <button class="btn add-stop" data-grad="main">+ Add stop</button>
-      </div>
-    </details>
-
-    <details>
-      <summary>Overlay gradient</summary>
-      <div class="body">
-        <div id="horiz-angle"></div>
-        <div class="stops" id="horiz-stops" data-grad="horiz"></div>
-        <button class="btn add-stop" data-grad="horiz">+ Add stop</button>
-        <div id="mix-ctrl"></div>
+        <div class="grad-strip-wrap">
+          <div class="grad-strip" id="grad-strip"></div>
+          <div class="grad-handles" id="grad-handles"></div>
+        </div>
+        <div id="grad-angle"></div>
+        <div class="stops" id="grad-stops"></div>
+        <button class="btn add-stop" id="add-stop-btn" type="button">+ Add stop</button>
       </div>
     </details>
 
@@ -44,7 +58,7 @@
       <div class="body" id="bg-body"></div>
     </details>
 
-    <details open>
+    <details>
       <summary>Export</summary>
       <div class="body" id="export-body"></div>
     </details>
@@ -59,7 +73,8 @@
     <canvas id="preview"></canvas>
   </main>
 </div>
-<div id="toast" role="status" aria-live="polite"></div>
+<div id="toast"></div>
+
 <script src="src/namespace.js"></script>
 <script src="src/utils.js"></script>
 <script src="src/color.js"></script>
@@ -68,6 +83,7 @@
 <script src="src/renderer.js"></script>
 <script src="src/state.js"></script>
 <script src="src/storage.js"></script>
+<script src="src/layout.js"></script>
 <script src="src/ui.js"></script>
 <script src="src/preview.js"></script>
 <script src="src/share.js"></script>
