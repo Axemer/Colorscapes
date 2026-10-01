@@ -221,6 +221,7 @@ input[type="number"]:focus,input[type="text"]:focus{
 .section-label{font-size:11px;color:var(--text-dim);}
 .section-label-spaced{margin-top:8px;}
 .preset-empty{font-size:11px;color:var(--text-dim);padding:4px 2px;}
+.hint{font-size:11px;color:var(--text-dim);padding:4px 2px;}
 
 .preset-list{display:flex;flex-direction:column;gap:5px;margin-top:2px;}
 .preset-item{
@@ -336,7 +337,7 @@ input[type="number"]:focus,input[type="text"]:focus{
 
 .shape-item {
   display: grid;
-  grid-template-columns: 22px 1fr auto auto;
+  grid-template-columns: 14px 22px 1fr auto auto;
   align-items: center;
   gap: 6px;
   padding: 5px 8px;
@@ -377,10 +378,30 @@ input[type="number"]:focus,input[type="text"]:focus{
 }
 .shape-item .icon-btn.off { opacity: 0.35; }
 
+/* Drag handle. touch-action:none is what stops the panel from
+   scrolling instead of dragging on touch devices. */
+.shape-item .grip {
+  width: 14px; height: 20px;
+  cursor: grab; touch-action: none;
+  color: var(--text-dim);
+  background-image: radial-gradient(circle at 50% 50%, currentColor 1px, transparent 1.3px);
+  background-size: 5px 5px;
+}
+.shape-item .grip:hover { color: var(--text); }
+.shape-item.dragging { opacity: .4; cursor: grabbing; }
+.shape-item.dragging .grip { cursor: grabbing; color: var(--text); }
+
+.shape-item.drop-before { box-shadow: inset 0 2px 0 rgba(255,255,255,0.6); }
+.shape-item.drop-after { box-shadow: inset 0 -2px 0 rgba(255,255,255,0.6); }
+
 .shape-list-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 6px;
+  margin-top: 6px;
+}
+
+.shape-list + .hint {
   margin-top: 6px;
 }
 

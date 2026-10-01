@@ -15,6 +15,11 @@
 
   const BLEND_MODES = ['normal', 'add', 'screen', 'multiply'];
 
+  /* Ceiling for the scene blur, as a fraction of frame width. Past
+     this the kernel runs out of pairs and the radius stops growing,
+     so the slider is capped to match what the GPU can deliver. */
+  const MAX_BLUR = 0.04;
+
   const DEFAULT_GRADIENT = {
     angle: 90,
     stops: [
@@ -27,14 +32,15 @@
     ],
   };
 
-  const DEFAULT_SHAPE = {
+    const DEFAULT_SHAPE = {
     x: 0.5, y: 0.5,
     w: 0.62, h: 0.30,
     rot: 0,
     roundness: 2.2,
-    softness: 0.65,
+    softness: 0.28,
     glow: 1.0,
     opacity: 1.0,
+    grain: 0.0,
     visible: true,
     blend: 'normal',
     gradient: DEFAULT_GRADIENT,
@@ -43,6 +49,9 @@
   const DEFAULT_STATE = {
     shapes: [clone(DEFAULT_SHAPE)],
     background: '#000000',
+    /* Scene-wide Gaussian, as a fraction of the frame width so a
+       preview and a 4K export smear by the same amount. */
+    blur: 0.012,
     exportW: 1920,
     exportH: 1080,
   };
@@ -51,6 +60,36 @@
      Migration below also accepts the old shape/main/horiz/mix
      schema, so external hashes from before the upgrade keep working. */
   const BUILTIN_PRESETS = [
+        {
+      name: 'Neon Sunset',
+      state: {
+        shapes: [{
+          id: 'neon-sunset',
+          x: 0.5, y: 0.5,
+          w: 0.92, h: 0.96,
+          rot: 0,
+          roundness: 2.9,
+          softness: 0.42,
+          glow: 1.02,
+          opacity: 1.0,
+          grain: 0.028,
+          visible: true,
+          blend: 'normal',
+          gradient: {
+            angle: 90,
+            stops: [
+              { pos: 0.00, color: '#e02814' },
+              { pos: 0.26, color: '#f89028' },
+              { pos: 0.50, color: '#f8d8c8' },
+              { pos: 0.72, color: '#4a90ee' },
+              { pos: 1.00, color: '#2e26a8' },
+            ],
+          },
+        }],
+        background: '#000000',
+        exportW: 1920, exportH: 1080,
+      },
+    },
     {
   name: 'Neon Sunset',
   state: {
@@ -137,7 +176,7 @@
   function num(v, fb) { return typeof v === 'number' && isFinite(v) ? v : fb; }
 
   function blankState() {
-    return { shapes: [], background: '', exportW: 0, exportH: 0 };
+    return { shapes: [], background: '', blur: 0, exportW: 0, exportH: 0 };
   }
 
   function makeId() {
@@ -176,6 +215,7 @@
       visible: src.visible !== false,
       blend: BLEND_MODES.includes(src.blend) ? src.blend : DEFAULT_SHAPE.blend,
       gradient: normaliseGradient(src.gradient, DEFAULT_GRADIENT),
+      grain: clamp(num(src.grain, DEFAULT_SHAPE.grain), 0, 1),
     };
   }
 
@@ -210,6 +250,7 @@
     return {
       shapes,
       background: src.background,
+      blur: num(src.blur, DEFAULT_STATE.blur),
       exportW: src.exportW,
       exportH: src.exportH,
     };
@@ -225,6 +266,7 @@
 
     target.shapes = list;
     target.background = isHex(src.background) ? src.background : DEFAULT_STATE.background;
+    target.blur = clamp(num(src.blur, DEFAULT_STATE.blur), 0, MAX_BLUR);
     target.exportW = Math.max(1, Math.round(num(src.exportW, DEFAULT_STATE.exportW)));
     target.exportH = Math.max(1, Math.round(num(src.exportH, DEFAULT_STATE.exportH)));
     return target;
@@ -288,6 +330,7 @@
     return normaliseInto(blankState(), {
       shapes,
       background: '#000000',
+      blur: DEFAULT_STATE.blur,
       exportW: 1920,
       exportH: 1080,
     });
@@ -318,5 +361,6 @@
   GS.DEFAULT_SHAPE = DEFAULT_SHAPE;
   GS.BUILTIN_PRESETS = BUILTIN_PRESETS;
   GS.BLEND_MODES = BLEND_MODES;
+  GS.MAX_BLUR = MAX_BLUR;
   GS.makeShapeId = makeId;
 })(window.GS);

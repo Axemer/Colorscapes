@@ -14,8 +14,14 @@
 
   const PANEL_TARGETS = [
     'shapes-list', 'shape-body', 'grad-angle', 'grad-stops',
-    'bg-body', 'export-body', 'presets-body',
+    'bg-body', 'blur-body', 'export-body', 'presets-body',
   ];
+
+  /* The blur lives on the scene, not on a shape, and is stored as a
+     fraction of the frame width. The slider speaks percent, and the
+     hint underneath translates it into the pixels the current export
+     size will actually get. */
+  const BLUR_STEP_PCT = 0.05;
 
   const SHAPE_FIELDS = [
     ['x', 'X', -1, 2, 0.005],
@@ -27,6 +33,7 @@
     ['softness', 'Softness', 0.001, 2, 0.005],
     ['glow', 'Glow', 0.1, 2, 0.01],
     ['opacity', 'Opacity', 0, 1, 0.01],
+    ['grain', 'Grain', 0, 0.15, 0.001],
   ];
 
   const SIZE_PRESETS = [
@@ -465,9 +472,13 @@
       const item = el('div', 'shape-item' + (shape.id === GS.selection.id ? ' selected' : ''));
       item.dataset.id = shape.id;
 
+      const grip = el('div', 'grip');
+      grip.title = 'Drag to change Z-order';
+
       const sw = el('div', 'swatch-mini');
       sw.style.background = swatchBackground(shape.gradient.stops);
-      item.appendChild(sw);
+
+      item.append(grip, sw);
 
       item.appendChild(el('div', 'name', `Shape ${i + 1}`));
 
@@ -493,6 +504,10 @@
     list.addEventListener('click', e => {
       const item = e.target.closest('.shape-item');
       if (!item) return;
+      /* The grip owns its own gesture (pick up on pointerdown, drop
+         on release); letting the synthetic click through as well
+         would just re-select and rebuild the same panels twice. */
+      if (e.target.closest('.grip')) return;
       const shape = GS.state.shapes.find(s => s.id === item.dataset.id);
       if (!shape) return;
 
@@ -510,6 +525,99 @@
       GS.selection.id = shape.id;
       refreshSelection();
     });
+
+    bindShapeReorder(list);
+  }
+
+  /* Shapes paint in array order, so the list order *is* the Z-order:
+     the first row is the bottom-most layer. Rows are picked up by
+     their grip, a marker shows the target slot and the array is
+     respliced on release. Reordering swaps whole shape objects
+     rather than colours-in-fixed-positions (that trick is only
+     correct for gradient stops, whose positions are the schema). */
+  let shapeDrag = null;
+
+  function moveShape(from, to) {
+    if (from === to) return;
+    const shapes = GS.state.shapes;
+    const [moved] = shapes.splice(from, 1);
+    shapes.splice(to, 0, moved);
+  }
+
+  function bindShapeReorder(list) {
+    list.addEventListener('pointerdown', e => {
+      const grip = e.target.closest('.grip');
+      if (!grip) return;
+      const row = grip.closest('.shape-item');
+      if (!row) return;
+      const from = GS.state.shapes.findIndex(s => s.id === row.dataset.id);
+      if (from < 0) return;
+
+      shapeDrag = { row, grip, from, to: from };
+      row.classList.add('dragging');
+      try { grip.setPointerCapture(e.pointerId); } catch (_) {}
+      e.preventDefault();
+
+      /* Grabbing a row picks it, like every other layer panel. The
+         list itself must not be rebuilt here — it would replace the
+         row under the pointer mid-gesture — so the highlight is
+         toggled in place and only the sibling panels are refreshed. */
+      if (GS.selection.id !== row.dataset.id) {
+        GS.selection.id = row.dataset.id;
+        list.querySelectorAll('.shape-item').forEach(r => {
+          r.classList.toggle('selected', r === row);
+        });
+        refreshShapePanel();
+        refreshGradientPanel();
+      }
+    });
+
+    list.addEventListener('pointermove', e => {
+      if (!shapeDrag) return;
+      const rows = [...list.children];
+      let to = shapeDrag.from;
+      let best = Infinity;
+      rows.forEach((r, i) => {
+        if (r === shapeDrag.row) return;
+        const rect = r.getBoundingClientRect();
+        const d = Math.abs(e.clientY - (rect.top + rect.height / 2));
+        if (d < best) { best = d; to = i; }
+      });
+      if (to === shapeDrag.to) return;
+
+      shapeDrag.to = to;
+      clearDropMarks(list);
+      const target = rows[to];
+      if (target) target.classList.add(to > shapeDrag.from ? 'drop-after' : 'drop-before');
+    });
+
+    const finish = e => {
+      if (!shapeDrag) return;
+      const { from, to, row, grip } = shapeDrag;
+      shapeDrag = null;
+      try { grip.releasePointerCapture(e.pointerId); } catch (_) {}
+      clearDropMarks(list);
+      row.classList.remove('dragging');
+
+      if (from === to) return;
+      moveShape(from, to);
+      buildShapesList();
+      GS.preview.schedule();
+    };
+
+    /* A cancel means the browser took the gesture away (touch
+       scroll, a context menu); committing there would silently
+       reshuffle the layers the user never finished dropping. */
+    const cancel = e => {
+      if (!shapeDrag) return;
+      try { shapeDrag.grip.releasePointerCapture(e.pointerId); } catch (_) {}
+      clearDropMarks(list);
+      shapeDrag.row.classList.remove('dragging');
+      shapeDrag = null;
+    };
+
+    list.addEventListener('pointerup', finish);
+    list.addEventListener('pointercancel', cancel);
   }
 
   /* ---------- Shape ops ---------- */
@@ -651,6 +759,40 @@
     GS.byId('bg-body').appendChild(row);
   }
 
+  /* ---------- Blur ---------- */
+
+  function blurPixels() {
+    return Math.round((GS.state.blur || 0) * GS.state.exportW);
+  }
+
+  function syncBlurHint() {
+    const hint = GS.byId('blur-hint');
+    if (!hint) return;
+    const px = blurPixels();
+    hint.textContent = px > 0
+      ? `Gaussian σ ≈ ${px} px at ${GS.state.exportW}×${GS.state.exportH}`
+      : 'No blur — shapes composite straight to the canvas';
+  }
+
+  function buildBlurUI() {
+    const body = GS.byId('blur-body');
+
+    makeControl(body, {
+      label: 'Radius', min: 0, max: GS.MAX_BLUR * 100, step: BLUR_STEP_PCT,
+      value: (GS.state.blur || 0) * 100,
+      onChange: v => {
+        GS.state.blur = clamp(v / 100, 0, GS.MAX_BLUR);
+        syncBlurHint();
+        GS.preview.schedule();
+      },
+    });
+
+    const hint = el('div', 'hint');
+    hint.id = 'blur-hint';
+    body.appendChild(hint);
+    syncBlurHint();
+  }
+
   /* ---------- Export ---------- */
 
   function sizeField(label, value, onChange) {
@@ -673,11 +815,13 @@
     const size = el('div', 'export-size');
     const width = sizeField('Width', GS.state.exportW, v => {
       GS.state.exportW = v;
+      syncBlurHint();
       GS.preview.layout();
       if (GS.layout) GS.layout.resize();
     });
     const height = sizeField('Height', GS.state.exportH, v => {
       GS.state.exportH = v;
+      syncBlurHint();
       GS.preview.layout();
       if (GS.layout) GS.layout.resize();
     });
@@ -690,6 +834,7 @@
         GS.state.exportH = h;
         width.input.value = w;
         height.input.value = h;
+        syncBlurHint();
         GS.preview.layout();
         if (GS.layout) GS.layout.resize();
       }));
@@ -838,6 +983,7 @@
     buildShapePanel();
     buildGradientPanel();
     buildBackgroundUI();
+    buildBlurUI();
     buildExportUI();
     buildPresetsUI();
     GS.preview.layout();
