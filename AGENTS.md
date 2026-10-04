@@ -112,6 +112,7 @@ composite-> canvas      scene over the background colour
 | `SHAPE_FIELDS` (`ui.js:26`) | `syncShapeInputs` (`ui.js:118`) matches `.ctrl` rows **by index** — append new rows *after* the field rows, never before |
 | OkLab math | duplicated in `gradient.js:26-62` *and* `color.js:53-98`; `gradient.js` has its own private copy |
 | Superellipse hit-test | duplicated near-verbatim in `preview.js:78` and `layout.js:26` |
+| Superellipse rotation | `shapeMask` and both hit-tests rotate **world → local**; `superellipsePath` (`layout.js:57`) rotates **local → world**, i.e. the inverse matrix (`-sin`). A forward matrix there draws every rotated outline mirrored against the render |
 | `normaliseShape` clamps | `shapeMask` in `shaders.js:76` mirrors them (`roundness ≥ 1.001`, `softness ≥ 0.001`) |
 
 ## Coordinates

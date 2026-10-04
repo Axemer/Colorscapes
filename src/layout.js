@@ -48,8 +48,14 @@
     return null;
   }
 
+  /* The hit-test above rotates world -> local, and the shader does the
+     same; drawing has to walk the other way, and the inverse of a
+     rotation matrix is its transpose — the sine swaps sign. Using the
+     forward matrix here mirrors every rotated outline against the WebGL
+     render (and against its own hit-test), which reads as the shape
+     being flipped. */
   function superellipsePath(ctx, cx, cy, rx, ry, n, rot) {
-    const cr = Math.cos(rot), sr = Math.sin(rot);
+    const cr = Math.cos(rot), sr = -Math.sin(rot);
     ctx.beginPath();
     for (let i = 0; i <= SUPER_STEPS; i++) {
       const t = (i / SUPER_STEPS) * Math.PI * 2;
