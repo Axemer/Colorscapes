@@ -127,7 +127,8 @@ exponent. Shapes render in array order — last is on top; hit-tests iterate bac
   24-stop `linear-gradient` string from OkLab samples on purpose: browsers interpolate those in
   sRGB and show a harsher ramp than the preview. Same reason `layout.js` pre-samples 3 stops.
 - Stops are always displayed in **position** order; "reorder" in `reorderStops` swaps *colours*
-  between fixed positions. `MIN_GAP` (`ui.js:47`) keeps regions from collapsing.
+  between fixed positions. Region width is edited by moving the positions themselves — there is no
+  separate size control.
 - `shape.visible === false` and `opacity <= 0` are both draw-time skips in `_drawShapes`, not
   UI-level.
 - `share.sync()` is debounced 300ms and uses `replaceState`, so the back button stays clean —

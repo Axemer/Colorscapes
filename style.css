@@ -5,6 +5,11 @@
   --text-dim: #9a9aa1;
   --control-bg: rgba(255,255,255,0.06);
   --control-bg-hover: rgba(255,255,255,0.11);
+  /* The select's list is painted by the UA in its own window, so the
+     translucent control colours would composite over its light default
+     and swallow the light text — it needs an opaque pair instead. */
+  --select-bg: #1a1a1e;
+  --select-bg-hover: #24242a;
 }
 
 *{box-sizing:border-box;}
@@ -130,9 +135,8 @@ input[type="number"]:focus,input[type="text"]:focus{
 .stop{
   display:grid;
   grid-template-columns:15px 26px 1fr 38px 20px;
-  grid-template-rows:auto auto;
   align-items:center;
-  gap:3px 6px;
+  gap:6px;
   padding:5px 6px;
   border-radius:9px;
   background:var(--control-bg);
@@ -141,14 +145,7 @@ input[type="number"]:focus,input[type="text"]:focus{
 }
 .stop:hover{background:var(--control-bg-hover);}
 
-/* Two lines per stop: position on top, region size below. */
-.stop .grip{grid-area:1/1/3/2;}
-.stop .stop-color{grid-area:1/2/3/3;}
-.stop .pos-range{grid-area:1/3/2/4;}
-.stop .pos{grid-area:1/4/2/5;}
-.stop .size-range{grid-area:2/3/3/4;}
-.stop .size{grid-area:2/4/3/5;}
-.stop .del{grid-area:1/5/3/6;}
+.stop .pos-range{min-width:0;}
 
 .stop .grip{
   width:15px;height:20px;
@@ -174,12 +171,10 @@ input[type="number"]:focus,input[type="text"]:focus{
 .stop input[type="color"]::-webkit-color-swatch-wrapper{padding:0;}
 .stop input[type="color"]::-webkit-color-swatch{border:none;border-radius:6px;}
 .stop input[type="color"]::-moz-color-swatch{border:none;border-radius:6px;}
-.stop .pos,.stop .size{
+.stop .pos{
   font-size:10.5px;color:var(--text-dim);
   text-align:right;font-variant-numeric:tabular-nums;
 }
-.stop .size{color:rgba(154,154,161,0.7);}
-.stop .size.off{opacity:.45;}
 .stop .del{
   width:20px;height:20px;border-radius:6px;border:none;
   background:transparent;color:var(--text-dim);cursor:pointer;
@@ -408,7 +403,8 @@ input[type="number"]:focus,input[type="text"]:focus{
 /* ---------- Blend selector ---------- */
 
 select.blend-select {
-  background: var(--control-bg);
+  color-scheme: dark;
+  background-color: var(--select-bg);
   border: 1px solid var(--panel-border);
   color: var(--text);
   border-radius: 7px;
@@ -419,16 +415,22 @@ select.blend-select {
   cursor: pointer;
   appearance: none; -webkit-appearance: none;
   background-image:
+    linear-gradient(var(--control-bg), var(--control-bg)),
     linear-gradient(45deg, transparent 50%, var(--text-dim) 50%),
     linear-gradient(135deg, var(--text-dim) 50%, transparent 50%);
-  background-position: calc(100% - 12px) center, calc(100% - 8px) center;
-  background-size: 4px 4px, 4px 4px;
+  background-position: 0 0, calc(100% - 12px) center, calc(100% - 8px) center;
+  background-size: 100% 100%, 4px 4px, 4px 4px;
   background-repeat: no-repeat;
 }
+select.blend-select:hover { background-color: var(--select-bg-hover); }
 select.blend-select:focus {
   outline: none;
   border-color: rgba(255,255,255,0.32);
-  background-color: var(--control-bg-hover);
+  background-color: var(--select-bg-hover);
+}
+select.blend-select option {
+  background: var(--select-bg);
+  color: var(--text);
 }
 
 /* ---------- Panel: no compression when all sections are open ----------

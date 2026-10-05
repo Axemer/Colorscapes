@@ -42,10 +42,6 @@
     [3840, 3840], [800, 800], [1080, 1080],
   ];
 
-  /* Stops are never allowed to fully collapse onto each other, so a
-     region always keeps a sliver of width. */
-  const MIN_GAP = 0.005;
-
   /* ---------- DOM helpers ---------- */
 
   function el(tag, className, text) {
@@ -238,20 +234,9 @@
 
   /* ---------- Stops editor (numeric rows) ---------- */
 
-  function rowOf(container, stop) {
-    const rows = container.children;
-    for (let i = 0; i < rows.length; i++) {
-      if (rows[i]._stop === stop) return rows[i];
-    }
-    return null;
-  }
-
   function renderStops(container, stops) {
     const list = sortedStops(stops);
-    container.replaceChildren(...list.map((stop, i) => {
-      const next = list[i + 1] || null;
-      const size = next ? next.pos - stop.pos : 0;
-
+    container.replaceChildren(...list.map(stop => {
       const row = el('div', 'stop');
       row._stop = stop;
 
@@ -269,15 +254,6 @@
       posRange.value = stop.pos;
       posRange.title = 'Position along the gradient';
 
-      const sizeRange = el('input', 'size-range');
-      sizeRange.type = 'range';
-      sizeRange.min = MIN_GAP * 100; sizeRange.max = 100; sizeRange.step = 0.5;
-      sizeRange.value = (size * 100).toFixed(1);
-      sizeRange.disabled = !next;
-      sizeRange.title = next
-        ? 'Size of this region (up to the next stop)'
-        : 'Last stop — nothing follows it';
-
       const del = el('button', 'del', '×');
       del.type = 'button';
       del.title = 'Remove stop';
@@ -286,7 +262,6 @@
       row.append(
         grip, color,
         posRange, el('span', 'pos', percent(stop.pos)),
-        sizeRange, el('span', 'size' + (next ? '' : ' off'), next ? Math.round(size * 100) + '%' : '—'),
         del,
       );
       return row;
@@ -306,17 +281,6 @@
     stops.push(...list);
   }
 
-  /* Region size = distance from this stop to the next one. */
-  function setRegionSize(list, i, size) {
-    const stop = list[i];
-    const next = list[i + 1];
-    if (!next) return null;
-    const after = list[i + 2];
-    const maxPos = after ? after.pos - MIN_GAP : 1;
-    next.pos = clamp(stop.pos + size, stop.pos + MIN_GAP, Math.max(stop.pos + MIN_GAP, maxPos));
-    return next;
-  }
-
   function bindStopEditor(container) {
     container.addEventListener('input', e => {
       const shape = GS.getSelectedShape();
@@ -331,18 +295,6 @@
       } else if (target.classList.contains('pos-range')) {
         stop.pos = clamp(parseFloat(target.value), 0, 1);
         row.querySelector('.pos').textContent = percent(stop.pos);
-      } else if (target.classList.contains('size-range')) {
-        const list = sortedStops(shape.gradient.stops);
-        const i = list.indexOf(stop);
-        if (i < 0) return;
-        const next = setRegionSize(list, i, parseFloat(target.value) / 100);
-        if (!next) return;
-        const nextRow = rowOf(container, next);
-        if (nextRow) {
-          nextRow.querySelector('.pos').textContent = percent(next.pos);
-          nextRow.querySelector('.pos-range').value = next.pos;
-        }
-        row.querySelector('.size').textContent = Math.round((next.pos - stop.pos) * 100) + '%';
       } else {
         return;
       }
