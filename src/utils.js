@@ -1,6 +1,7 @@
 /* =========================================================
    Utilities
-   Small dependency-free helpers: numbers, cloning, base64.
+   Small dependency-free helpers: numbers, cloning, base64
+   for the URL hash.
    ========================================================= */
 
 (function (GS) {
@@ -46,15 +47,6 @@
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     return new TextDecoder().decode(bytes);
-  };
-
-  utils.dataURLtoBlob = function (dataURL) {
-    const [meta, b64] = dataURL.split(',');
-    const mime = meta.match(/:(.*?);/)[1];
-    const bin = atob(b64);
-    const arr = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-    return new Blob([arr], { type: mime });
   };
 
   GS.utils = utils;

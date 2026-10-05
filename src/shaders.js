@@ -11,9 +11,15 @@
                 scene instead of a single shape.
      composite  premultiplied scene over the background colour.
 
-   The vertex shader is shared: the y-flip puts v_uv.y = 0 at the
-   top of the image, and every stage uses the same mapping, so no
-   pass ever has to think about texture orientation.
+   The vertex shader is plain clip space -> texture space, y up, and
+   deliberately does NOT flip: the blur and composite passes work in
+   texture space and a flip there would put the image upside down for
+   no reason. Only the shape pass authors in image space, so it flips
+   itself in main() and owns that decision alone.
+
+   shapeMask below is the hand-written mirror of the CPU predicate in
+   geom.js (superellipseDist). Same rotation direction, same clamps —
+   change one and you must change the other.
    ========================================================= */
 
 (function (GS) {
@@ -30,9 +36,9 @@
 attribute vec2 a_pos;
 varying vec2 v_uv;
 void main(){
-  /* Plain clip space -> texture space, y up. Every pass that samples
-     a render target then agrees with the GPU about which row is row
-     0; a pass that thinks in image space (y down) flips it itself. */
+  /* Clip space -> texture space, y up. Untouched from the naive
+     mapping: the blur and composite passes want it, and the shape
+     pass flips itself when it starts thinking in image space. */
   v_uv = a_pos * 0.5 + 0.5;
   gl_Position = vec4(a_pos, 0.0, 1.0);
 }
@@ -288,4 +294,5 @@ void main(){
     BLUR_FRAG_SRC,
     COMPOSITE_FRAG_SRC,
     BLUR_PAIRS,
-  };})(window.GS);
+  };
+})(window.GS);

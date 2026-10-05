@@ -12,6 +12,10 @@
   const { clamp, clone } = GS.utils;
   const gradient = GS.gradient;
 
+  /* The numeric shape rows come straight from the state schema, so the
+     panel cannot drift from what normaliseShape accepts. */
+  const SHAPE_SCHEMA = GS.SHAPE_SCHEMA;
+
   const PANEL_TARGETS = [
     'shapes-list', 'shape-body', 'grad-angle', 'grad-stops',
     'bg-body', 'blur-body', 'export-body', 'presets-body',
@@ -22,19 +26,6 @@
      hint underneath translates it into the pixels the current export
      size will actually get. */
   const BLUR_STEP_PCT = 0.05;
-
-  const SHAPE_FIELDS = [
-    ['x', 'X', -1, 2, 0.005],
-    ['y', 'Y', -1, 2, 0.005],
-    ['w', 'Width', 0.01, 3, 0.005],
-    ['h', 'Height', 0.01, 3, 0.005],
-    ['rot', 'Rotation', -180, 180, 0.5],
-    ['roundness', 'Roundness', 0.01, 20, 0.05],
-    ['softness', 'Softness', 0.001, 2, 0.005],
-    ['glow', 'Glow', 0.1, 2, 0.01],
-    ['opacity', 'Opacity', 0, 1, 0.01],
-    ['grain', 'Grain', 0, 0.15, 0.001],
-  ];
 
   const SIZE_PRESETS = [
     [1920, 1080], [2560, 1440], [3840, 2160],
@@ -60,17 +51,17 @@
 
   function percent(pos) { return Math.round(pos * 100) + '%'; }
 
-  function sortedStops(stops) {
-    return [...stops].sort((a, b) => a.pos - b.pos);
-  }
-
   /* ---------- Generic range+number ---------- */
 
   const inputBinders = new WeakMap();
 
   function makeControl(parent, opts) {
-    const { label, min, max, step, value, onChange } = opts;
+    const { label, min, max, step, value, onChange, key } = opts;
     const row = el('div', 'ctrl');
+    /* Row identity travels with the DOM, not with its position, so a
+       schema row can be reordered or interleaved without breaking the
+       control the preview writes back into. */
+    if (key) row.dataset.key = key;
     row.appendChild(el('label', null, label));
 
     const range = el('input');
@@ -115,12 +106,12 @@
     const body = GS.byId('shape-body');
     const shape = GS.getSelectedShape();
     if (!body || !shape) return;
-    SHAPE_FIELDS.forEach(([key], i) => {
-      const row = body.querySelectorAll('.ctrl')[i];
-      if (!row) return;
+    for (const field of SHAPE_SCHEMA) {
+      const row = body.querySelector(`.ctrl[data-key="${field.key}"]`);
+      if (!row) continue;
       const api = inputBinders.get(row);
-      if (api) api.set(shape[key]);
-    });
+      if (api) api.set(shape[field.key]);
+    }
   }
 
   /* ---------- Gradient strip (drag editor) ---------- */
@@ -132,7 +123,7 @@
      same OKLab mix instead of a CSS gradient — browsers interpolate
      those in sRGB and would show a harsher ramp than the preview. */
   function stripBackground(stops) {
-    const list = sortedStops(stops);
+    const list = gradient.sortStops(stops);
     if (!list.length) return 'none';
     if (list.length === 1) return list[0].color;
     const parts = [];
@@ -155,7 +146,7 @@
       return;
     }
 
-    const list = sortedStops(shape.gradient.stops);
+    const list = gradient.sortStops(shape.gradient.stops);
     strip.style.background = stripBackground(list);
 
     handles.replaceChildren(...list.map(stop => {
@@ -178,7 +169,7 @@
       if (!shape) return;
       const rect = strip.getBoundingClientRect();
       const pos = clamp((e.clientX - rect.left) / rect.width, 0, 1);
-      const list = sortedStops(shape.gradient.stops);
+      const list = gradient.sortStops(shape.gradient.stops);
       shape.gradient.stops.push({
         pos,
         color: gradient.sampleStopsColor(list, pos),
@@ -235,7 +226,7 @@
   /* ---------- Stops editor (numeric rows) ---------- */
 
   function renderStops(container, stops) {
-    const list = sortedStops(stops);
+    const list = gradient.sortStops(stops);
     container.replaceChildren(...list.map(stop => {
       const row = el('div', 'stop');
       row._stop = stop;
@@ -272,7 +263,7 @@
      dragged stop the slot of the row it landed on: the positions
      stay put and the colours swap places between them. */
   function reorderStops(stops, from, to) {
-    const list = sortedStops(stops);
+    const list = gradient.sortStops(stops);
     const positions = list.map(s => s.pos);
     const [moved] = list.splice(from, 1);
     list.splice(to, 0, moved);
@@ -330,73 +321,105 @@
     bindStopReorder(container);
   }
 
-  /* Pointer-driven drag & drop. Native HTML5 DnD would fight the
-     range inputs, so rows are picked up by their grip, a drop
-     marker shows which slot is targeted and the swap happens on
-     release. */
-  let stopDrag = null;
+  /* ---------- shared: reorder gesture ---------- */
+
+  let reorderDrag = null;
 
   function clearDropMarks(container) {
     container.querySelectorAll('.drop-before, .drop-after')
       .forEach(r => r.classList.remove('drop-before', 'drop-after'));
   }
 
-  function bindStopReorder(container) {
+  /* One implementation for both reorderable lists. Native HTML5 DnD
+     would fight the range inputs, so rows are picked up by their grip,
+     a marker shows which slot is targeted and the swap happens on
+     release.
+
+     opts.row       selector for a draggable row
+     opts.onStart   (row, grip) -> source index, or null to refuse
+     opts.onGrab    optional side effect once the drag is under way
+     opts.onCommit  (from, to) -> void; re-renders whatever it moved
+
+     A cancelled gesture never commits: the browser took it away (touch
+     scroll, a context menu), so committing would reshuffle layers the
+     user never finished dropping. */
+  function bindReorder(container, opts) {
+    const mine = () => reorderDrag && reorderDrag.container === container;
+
     container.addEventListener('pointerdown', e => {
       const grip = e.target.closest('.grip');
       if (!grip) return;
-      const row = grip.closest('.stop');
-      const shape = GS.getSelectedShape();
-      if (!row || !row._stop || !shape) return;
+      const row = grip.closest(opts.row);
+      if (!row) return;
 
-      const from = sortedStops(shape.gradient.stops).indexOf(row._stop);
-      if (from < 0) return;
+      const from = opts.onStart(row, grip);
+      if (from === null || from === undefined) return;
 
-      stopDrag = { stop: row._stop, row, grip, from, to: from };
+      reorderDrag = { container, row, grip, from, to: from };
       row.classList.add('dragging');
       try { grip.setPointerCapture(e.pointerId); } catch (_) {}
       e.preventDefault();
+
+      if (opts.onGrab) opts.onGrab(row);
     });
 
     container.addEventListener('pointermove', e => {
-      if (!stopDrag) return;
+      if (!mine()) return;
+      const drag = reorderDrag;
       const rows = [...container.children];
-      let to = stopDrag.from;
+      let to = drag.from;
       let best = Infinity;
       rows.forEach((r, i) => {
-        if (r === stopDrag.row) return;
+        if (r === drag.row) return;
         const rect = r.getBoundingClientRect();
         const d = Math.abs(e.clientY - (rect.top + rect.height / 2));
         if (d < best) { best = d; to = i; }
       });
-      if (to === stopDrag.to) return;
+      if (to === drag.to) return;
 
-      stopDrag.to = to;
+      drag.to = to;
       clearDropMarks(container);
       const target = rows[to];
-      if (target) target.classList.add(to > stopDrag.from ? 'drop-after' : 'drop-before');
+      if (target) target.classList.add(to > drag.from ? 'drop-after' : 'drop-before');
     });
 
-    const finish = e => {
-      if (!stopDrag) return;
-      const { from, to, row, grip } = stopDrag;
-      stopDrag = null;
+    const release = commit => e => {
+      if (!mine()) return;
+      const { from, to, row, grip } = reorderDrag;
+      reorderDrag = null;
       try { grip.releasePointerCapture(e.pointerId); } catch (_) {}
       clearDropMarks(container);
       row.classList.remove('dragging');
-
-      if (from === to) return;
-      const shape = GS.getSelectedShape();
-      if (!shape) return;
-      const stops = shape.gradient.stops;
-      reorderStops(stops, from, to);
-      renderStops(container, stops);
-      renderStrip();
-      GS.preview.schedule();
+      if (!commit || from === to) return;
+      opts.onCommit(from, to);
     };
 
-    container.addEventListener('pointerup', finish);
-    container.addEventListener('pointercancel', finish);
+    container.addEventListener('pointerup', release(true));
+    container.addEventListener('pointercancel', release(false));
+  }
+
+  /* Stops are always shown in position order, so dragging one past its
+     neighbour cannot mean "insert a new stop" — it means the dragged
+     stop takes the slot it landed on, which reorderStops expresses as
+     swapping colours between positions that stay put. */
+  function bindStopReorder(container) {
+    bindReorder(container, {
+      row: '.stop',
+      onStart: row => {
+        const shape = GS.getSelectedShape();
+        if (!shape || !row._stop) return null;
+        const from = gradient.sortStops(shape.gradient.stops).indexOf(row._stop);
+        return from < 0 ? null : from;
+      },
+      onCommit: (from, to) => {
+        const shape = GS.getSelectedShape();
+        if (!shape) return;
+        reorderStops(shape.gradient.stops, from, to);
+        renderStops(container, shape.gradient.stops);
+        renderStrip();
+        GS.preview.schedule();
+      },
+    });
   }
 
   function addStop() {
@@ -482,13 +505,10 @@
   }
 
   /* Shapes paint in array order, so the list order *is* the Z-order:
-     the first row is the bottom-most layer. Rows are picked up by
-     their grip, a marker shows the target slot and the array is
-     respliced on release. Reordering swaps whole shape objects
-     rather than colours-in-fixed-positions (that trick is only
-     correct for gradient stops, whose positions are the schema). */
-  let shapeDrag = null;
-
+     the first row is the bottom-most layer. Reordering here moves whole
+     shape objects rather than swapping colours in fixed positions —
+     that trick is only correct for gradient stops, whose positions are
+     part of the schema. */
   function moveShape(from, to) {
     if (from === to) return;
     const shapes = GS.state.shapes;
@@ -497,79 +517,31 @@
   }
 
   function bindShapeReorder(list) {
-    list.addEventListener('pointerdown', e => {
-      const grip = e.target.closest('.grip');
-      if (!grip) return;
-      const row = grip.closest('.shape-item');
-      if (!row) return;
-      const from = GS.state.shapes.findIndex(s => s.id === row.dataset.id);
-      if (from < 0) return;
-
-      shapeDrag = { row, grip, from, to: from };
-      row.classList.add('dragging');
-      try { grip.setPointerCapture(e.pointerId); } catch (_) {}
-      e.preventDefault();
-
-      /* Grabbing a row picks it, like every other layer panel. The
-         list itself must not be rebuilt here — it would replace the
-         row under the pointer mid-gesture — so the highlight is
-         toggled in place and only the sibling panels are refreshed. */
-      if (GS.selection.id !== row.dataset.id) {
+    bindReorder(list, {
+      row: '.shape-item',
+      onStart: row => {
+        const from = GS.state.shapes.findIndex(s => s.id === row.dataset.id);
+        return from < 0 ? null : from;
+      },
+      onGrab: row => {
+        /* Grabbing a row picks it, like every other layer panel. The
+           list itself must not be rebuilt here — it would replace the
+           row under the pointer mid-gesture — so the highlight is
+           toggled in place and only the sibling panels are refreshed. */
+        if (GS.selection.id === row.dataset.id) return;
         GS.selection.id = row.dataset.id;
         list.querySelectorAll('.shape-item').forEach(r => {
           r.classList.toggle('selected', r === row);
         });
         refreshShapePanel();
         refreshGradientPanel();
-      }
+      },
+      onCommit: (from, to) => {
+        moveShape(from, to);
+        buildShapesList();
+        GS.preview.schedule();
+      },
     });
-
-    list.addEventListener('pointermove', e => {
-      if (!shapeDrag) return;
-      const rows = [...list.children];
-      let to = shapeDrag.from;
-      let best = Infinity;
-      rows.forEach((r, i) => {
-        if (r === shapeDrag.row) return;
-        const rect = r.getBoundingClientRect();
-        const d = Math.abs(e.clientY - (rect.top + rect.height / 2));
-        if (d < best) { best = d; to = i; }
-      });
-      if (to === shapeDrag.to) return;
-
-      shapeDrag.to = to;
-      clearDropMarks(list);
-      const target = rows[to];
-      if (target) target.classList.add(to > shapeDrag.from ? 'drop-after' : 'drop-before');
-    });
-
-    const finish = e => {
-      if (!shapeDrag) return;
-      const { from, to, row, grip } = shapeDrag;
-      shapeDrag = null;
-      try { grip.releasePointerCapture(e.pointerId); } catch (_) {}
-      clearDropMarks(list);
-      row.classList.remove('dragging');
-
-      if (from === to) return;
-      moveShape(from, to);
-      buildShapesList();
-      GS.preview.schedule();
-    };
-
-    /* A cancel means the browser took the gesture away (touch
-       scroll, a context menu); committing there would silently
-       reshuffle the layers the user never finished dropping. */
-    const cancel = e => {
-      if (!shapeDrag) return;
-      try { shapeDrag.grip.releasePointerCapture(e.pointerId); } catch (_) {}
-      clearDropMarks(list);
-      shapeDrag.row.classList.remove('dragging');
-      shapeDrag = null;
-    };
-
-    list.addEventListener('pointerup', finish);
-    list.addEventListener('pointercancel', cancel);
   }
 
   /* ---------- Shape ops ---------- */
@@ -634,12 +606,14 @@
       return;
     }
 
-    SHAPE_FIELDS.forEach(([key, label, min, max, step]) => {
+    SHAPE_SCHEMA.forEach(field => {
+      const [min, max] = field.ui;
       makeControl(body, {
-        label, min, max, step,
-        value: shape[key],
+        key: field.key,
+        label: field.label, min, max, step: field.step,
+        value: shape[field.key],
         onChange: v => {
-          shape[key] = v;
+          shape[field.key] = v;
           GS.preview.schedule();
           if (GS.layout) GS.layout.draw();
         },

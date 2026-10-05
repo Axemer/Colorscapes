@@ -4,92 +4,64 @@
    shape as a superellipse outline. Pointer drags move the shape,
    double-click on empty space adds a new one, right-click removes.
    The canvas is created once and just redrawn on state changes.
+
+   Geometry is not re-derived here: geom.js owns the superellipse
+   predicate, the grip positions and the resize maths, so this canvas
+   and the preview canvas cannot disagree about where a shape is.
    ========================================================= */
 
 (function (GS) {
   'use strict';
 
-  const { clamp, deg2rad } = GS.utils;
+  const geom = GS.geom;
+  const { deg2rad } = GS.utils;
   const { sortStops, sampleStopsColor } = GS.gradient;
 
   const SIDE_PADDING = 12;
   const MAX_HEIGHT = 240;
   const GRID_DIV = 4;
   const SUPER_STEPS = 96;
-  const HANDLE_SIZE = 6;
-  const HANDLE_HIT = 10;
+
+  /* Invisible shapes keep a ghost outline, and a fully transparent
+     one keeps a faint fill: the layout view is a map of the scene,
+     not a second render of it, so it deliberately does NOT mirror
+     the renderer's opacity == 0 skip. */
+  const HIDDEN_ALPHA = 0.22;
+  const FILL_ALPHA = 0.85;
+  const FILL_MIN_ALPHA = 0.08;
 
   let canvas = null;
   let ctx = null;
   let drag = null; // move drag
-  let resizeDrag = null; // resize drag: { shape, handle, startW, startH, startX, startY }
+  let resizeDrag = null; // resize drag, from geom.startResize
 
-  /* ---------- geometry ---------- */
+  /* ---------- drawing ---------- */
 
-  function shapeContains(shape, u, v) {
-    const aspect = GS.state.exportW / GS.state.exportH;
-    const px = (u - shape.x) * aspect;
-    const py = (v - shape.y);
-    const theta = deg2rad(shape.rot);
-    const ca = Math.cos(theta), sa = Math.sin(theta);
-    const rpx = px * ca - py * sa;
-    const rpy = px * sa + py * ca;
-    const hw = Math.max(shape.w * 0.5 * aspect, 1e-6);
-    const hh = Math.max(shape.h * 0.5, 1e-6);
-    const dx = Math.abs(rpx) / hw;
-    const dy = Math.abs(rpy) / hh;
-    const r = Math.max(shape.roundness, 0.01);
-    const dist = Math.pow(Math.pow(dx, r) + Math.pow(dy, r), 1 / r);
-    return dist <= 1;
-  }
+  function draw() {
+    if (!ctx) return;
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
 
-  function getHandlePoints(shape, w, h) {
-    const cx = shape.x * w;
-    const cy = shape.y * h;
-    const rx = shape.w * 0.5 * w;
-    const ry = shape.h * 0.5 * h;
-    const rot = deg2rad(shape.rot);
-    const ca = Math.cos(rot), sa = Math.sin(rot);
-    const points = [];
-    const dirs = [
-      [-1, -1], [0, -1], [1, -1],
-      [-1,  0],          [1,  0],
-      [-1,  1], [0,  1], [1,  1],
-    ];
-    for (let i = 0; i < dirs.length; i++) {
-      const dx = dirs[i][0], dy = dirs[i][1];
-      const px = cx + (dx * rx * ca - dy * ry * sa);
-      const py = cy + (dx * rx * sa + dy * ry * ca);
-      points.push({ x: px, y: py, dx, dy, type: 'resize', index: i });
+    ctx.fillStyle = GS.state.background || '#000';
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    for (let i = 1; i < GRID_DIV; i++) {
+      const t = i / GRID_DIV;
+      ctx.beginPath(); ctx.moveTo(t * w, 0); ctx.lineTo(t * w, h); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, t * h); ctx.lineTo(w, t * h); ctx.stroke();
     }
-    points.push({ x: cx, y: cy, type: 'center' });
-    return points;
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.beginPath(); ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
+
+    for (const shape of GS.state.shapes) drawShape(shape, w, h);
   }
 
-  function hitHandle(shape, w, h, u, v) {
-    const canvasW = w;
-    const canvasH = h;
-    const px = u * canvasW;
-    const py = v * canvasH;
-    const pts = getHandlePoints(shape, canvasW, canvasH);
-    for (let i = 0; i < pts.length; i++) {
-      const p = pts[i];
-      if (p.type === 'center') continue;
-      const d = Math.hypot(px - p.x, py - p.y);
-      if (d <= HANDLE_HIT) return p;
-    }
-    return null;
-  }
-
-  function hitTest(u, v) {
-    for (let i = GS.state.shapes.length - 1; i >= 0; i--) {
-      const s = GS.state.shapes[i];
-      if (s.visible && shapeContains(s, u, v)) return s;
-    }
-    return null;
-  }
-
-  /* The hit-test above rotates world -> local, and the shader does the
+  /* The hit-test rotates world -> local, and the shader does the
      same; drawing has to walk the other way, and the inverse of a
      rotation matrix is its transpose — the sine swaps sign. Using the
      forward matrix here mirrors every rotated outline against the WebGL
@@ -111,34 +83,6 @@
     ctx.closePath();
   }
 
-  /* ---------- drawing ---------- */
-
-  function draw() {
-    if (!ctx) return;
-    const w = canvas.width;
-    const h = canvas.height;
-    ctx.clearRect(0, 0, w, h);
-
-    ctx.fillStyle = GS.state.background || '#000';
-    ctx.fillRect(0, 0, w, h);
-
-    // Grid
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-    ctx.lineWidth = 1;
-    for (let i = 1; i < GRID_DIV; i++) {
-      const t = i / GRID_DIV;
-      ctx.beginPath(); ctx.moveTo(t * w, 0); ctx.lineTo(t * w, h); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0, t * h); ctx.lineTo(w, t * h); ctx.stroke();
-    }
-
-    // Centre crosshair
-    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
-    ctx.beginPath(); ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
-
-    for (const shape of GS.state.shapes) drawShape(shape, w, h);
-  }
-
   function drawShape(shape, w, h) {
     const cx = shape.x * w;
     const cy = shape.y * h;
@@ -148,7 +92,7 @@
     const selected = GS.selection.id === shape.id;
 
     ctx.save();
-    ctx.globalAlpha = shape.visible ? 1 : 0.22;
+    ctx.globalAlpha = shape.visible ? 1 : HIDDEN_ALPHA;
 
     superellipsePath(ctx, cx, cy, rx, ry, shape.roundness, rot);
 
@@ -165,7 +109,7 @@
       g.addColorStop(1, sampleStopsColor(sorted, 0.9));
 
       const prevAlpha = ctx.globalAlpha;
-      ctx.globalAlpha = prevAlpha * clamp(shape.opacity, 0.08, 1) * 0.85;
+      ctx.globalAlpha = prevAlpha * Math.min(Math.max(shape.opacity, FILL_MIN_ALPHA), 1) * FILL_ALPHA;
       ctx.fillStyle = g;
       ctx.fill();
       ctx.globalAlpha = prevAlpha;
@@ -176,28 +120,21 @@
     ctx.stroke();
 
     if (selected) {
-      const rot2 = deg2rad(shape.rot);
-      const ca2 = Math.cos(rot2), sa2 = Math.sin(rot2);
+      /* Same grips the pointer hit-tests against, so what is drawn is
+         what can be grabbed. */
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const size = geom.HANDLE_SIZE * dpr;
       ctx.strokeStyle = 'rgba(255,255,255,0.9)';
       ctx.fillStyle = 'rgba(0,0,0,0.7)';
       ctx.lineWidth = 1;
-      const dirs = [
-        [-1,-1],[0,-1],[1,-1],
-        [-1,0],        [1,0],
-        [-1,1],[0,1],[1,1],
-      ];
-      for (let i = 0; i < dirs.length; i++) {
-        const dx = dirs[i][0], dy = dirs[i][1];
-        const pxh = cx + (dx * rx * ca2 - dy * ry * sa2);
-        const pyh = cy + (dx * rx * sa2 + dy * ry * ca2);
+      for (const p of geom.handlePoints(shape, geom.aspect())) {
         ctx.beginPath();
-        ctx.arc(pxh, pyh, HANDLE_SIZE, 0, Math.PI * 2);
+        ctx.arc(p.u * w, p.v * h, size, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       }
     }
 
-    // Center handle
     ctx.beginPath();
     ctx.arc(cx, cy, selected ? 4.5 : 3, 0, Math.PI * 2);
     ctx.fillStyle = selected ? '#fff' : 'rgba(255,255,255,0.55)';
@@ -245,40 +182,18 @@
 
   function onPointerDown(e) {
     const { u, v } = toUV(e);
-    let shape = null;
-    if (GS.selection.id) {
-      shape = GS.state.shapes.find(s => s.id === GS.selection.id);
-    }
-    if (shape) {
-      const h = hitHandle(shape, canvas.width, canvas.height, u, v);
-      if (h) {
-        const canvasW = canvas.width;
-      const canvasH = canvas.height;
-      const theta = deg2rad(shape.rot);
-      const ca = Math.cos(theta), sa = Math.sin(theta);
-      const cx = shape.x * canvasW;
-      const cy = shape.y * canvasH;
-      const mx = u * canvasW;
-      const my = v * canvasH;
-      const lmx = (mx - cx) * ca + (my - cy) * sa;
-      const lmy = -(mx - cx) * sa + (my - cy) * ca;
-      resizeDrag = {
-        shape,
-        handle: h,
-        startW: shape.w,
-        startH: shape.h,
-        startLmx: lmx,
-        startLmy: lmy,
-        startRx: shape.w * 0.5,
-        startRy: shape.h * 0.5,
-        dirX: h.dx,
-        dirY: h.dy,
-        canvasW,
-        canvasH,
-        centerX: shape.x,
-        centerY: shape.y,
-      };
-        GS.selection.id = shape.id;
+    const rect = canvas.getBoundingClientRect();
+    const ar = geom.aspect();
+
+    const selected = GS.selection.id
+      ? GS.state.shapes.find(s => s.id === GS.selection.id)
+      : null;
+
+    if (selected) {
+      const grip = geom.hitHandle(selected, u, v, rect.width, rect.height, ar);
+      if (grip) {
+        resizeDrag = geom.startResize(selected, grip, u, v, ar);
+        GS.selection.id = selected.id;
         GS.ui.refreshSelection();
         try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
         e.preventDefault();
@@ -286,7 +201,7 @@
       }
     }
 
-    shape = hitTest(u, v);
+    const shape = geom.hitTest(u, v);
 
     if (!shape) {
       if (GS.selection.id) {
@@ -307,49 +222,15 @@
   function onPointerMove(e) {
     if (resizeDrag) {
       const { u, v } = toUV(e);
-      const rd = resizeDrag;
-      const shape = rd.shape;
-      const canvasW = rd.canvasW;
-      const canvasH = rd.canvasH;
-      const theta = deg2rad(shape.rot);
-      const ca = Math.cos(theta), sa = Math.sin(theta);
-      const cx = shape.x * canvasW;
-      const cy = shape.y * canvasH;
-      const mx = u * canvasW;
-      const my = v * canvasH;
-      const lmx = (mx - cx) * ca + (my - cy) * sa;
-      const lmy = -(mx - cx) * sa + (my - cy) * ca;
-      const dlmx = lmx - rd.startLmx;
-      const dlmy = lmy - rd.startLmy;
-      let dist = Math.hypot(dlmx, dlmy);
-      let scale = dist < 5 ? 0.005 : (dist < 20 ? 0.01 : (dist < 60 ? 0.02 : 0.03));
-      let nw = rd.startW + rd.dirX * dlmx * scale;
-      let nh = rd.startH + rd.dirY * dlmy * scale;
-      if (rd.dirX === 0) nw = rd.startW;
-      if (rd.dirY === 0) nh = rd.startH;
-      if (e.shiftKey && rd.dirX !== 0 && rd.dirY !== 0) {
-        const ratio = rd.startW / rd.startH;
-        if (nw / nh > ratio) nw = nh * ratio;
-        else nh = nw / ratio;
-      }
-      nw = Math.max(0.001, Math.min(10, nw));
-      nh = Math.max(0.001, Math.min(10, nh));
-      if (e.altKey || e.metaKey) {
-        const newRx = nw * 0.5;
-        const newRy = nh * 0.5;
-        const dRx = newRx - rd.startRx;
-        const dRy = newRy - rd.startRy;
-        const theta = deg2rad(shape.rot);
-        const ca = Math.cos(theta), sa = Math.sin(theta);
-        const dU = rd.dirX * dRx * ca - rd.dirY * dRy * sa;
-        const dV = rd.dirX * dRx * sa + rd.dirY * dRy * ca;
-        shape.x = rd.centerX - dU;
-        shape.y = rd.centerY - dV;
-      } else if (e.shiftKey && rd.dirX !== 0 && rd.dirY !== 0) {
-        // already handled
-      }
-      shape.w = nw;
-      shape.h = nh;
+      const shape = resizeDrag.shape;
+      const pose = geom.applyResize(resizeDrag, u, v, {
+        ratio: e.shiftKey,
+        fromCenter: e.altKey || e.metaKey,
+      });
+      shape.w = pose.w;
+      shape.h = pose.h;
+      shape.x = pose.x;
+      shape.y = pose.y;
       draw();
       GS.preview.schedule();
       GS.ui.syncShapeInputs();
@@ -377,13 +258,13 @@
 
   function onDblClick(e) {
     const { u, v } = toUV(e);
-    if (hitTest(u, v)) return;
+    if (geom.hitTest(u, v)) return;
     GS.ui.addShapeAt(u, v);
   }
 
   function onContextMenu(e) {
     const { u, v } = toUV(e);
-    const shape = hitTest(u, v);
+    const shape = geom.hitTest(u, v);
     if (shape) {
       e.preventDefault();
       GS.ui.deleteShape(shape.id);

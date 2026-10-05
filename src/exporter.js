@@ -8,8 +8,6 @@
 (function (GS) {
   'use strict';
 
-  const { dataURLtoBlob } = GS.utils;
-
   let session = null;
 
   function getSession() {
@@ -21,10 +19,10 @@
   }
 
   function canvasToBlob(canvas) {
-    return new Promise(resolve => {
-      if (canvas.toBlob) canvas.toBlob(resolve, 'image/png');
-      else resolve(dataURLtoBlob(canvas.toDataURL('image/png')));
-    });
+    /* toBlob is the async form and the only one that does not need a
+       data URL round-trip, which would blow the argument limit on a
+       5120px frame. */
+    return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
   }
 
   function download(blob, filename) {

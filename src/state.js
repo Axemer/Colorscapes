@@ -32,7 +32,7 @@
     ],
   };
 
-    const DEFAULT_SHAPE = {
+  const DEFAULT_SHAPE = {
     x: 0.5, y: 0.5,
     w: 0.62, h: 0.30,
     rot: 0,
@@ -45,6 +45,28 @@
     blend: 'normal',
     gradient: DEFAULT_GRADIENT,
   };
+
+  /* The numeric shape schema, in one table, shared by the normaliser
+     and the shape panel. Two limits live here on purpose and are not
+     the same numbers: `ui` is the range the slider offers, while
+     `min`/`max` is the hard clamp that keeps a hostile hash from
+     producing zero-area geometry or a 1/0 in the shader. `shapeMask`
+     in shaders.js mirrors the min columns.
+
+     The panel order is the schema order; nothing else may depend on
+     it (syncShapeInputs matches rows by data-key). */
+  const SHAPE_SCHEMA = [
+    { key: 'x', label: 'X', step: 0.005, ui: [-1, 2] },
+    { key: 'y', label: 'Y', step: 0.005, ui: [-1, 2] },
+    { key: 'w', label: 'Width', step: 0.005, ui: [0.01, 3], min: 0.001 },
+    { key: 'h', label: 'Height', step: 0.005, ui: [0.01, 3], min: 0.001 },
+    { key: 'rot', label: 'Rotation', step: 0.5, ui: [-180, 180] },
+    { key: 'roundness', label: 'Roundness', step: 0.05, ui: [0.01, 20], min: 0.01 },
+    { key: 'softness', label: 'Softness', step: 0.005, ui: [0.001, 2], min: 0.001 },
+    { key: 'glow', label: 'Glow', step: 0.01, ui: [0.1, 2] },
+    { key: 'opacity', label: 'Opacity', step: 0.01, ui: [0, 1], min: 0, max: 1 },
+    { key: 'grain', label: 'Grain', step: 0.001, ui: [0, 0.15], min: 0, max: 1 },
+  ];
 
   const DEFAULT_STATE = {
     shapes: [clone(DEFAULT_SHAPE)],
@@ -60,17 +82,17 @@
      Migration below also accepts the old shape/main/horiz/mix
      schema, so external hashes from before the upgrade keep working. */
   const BUILTIN_PRESETS = [
-        {
+    {
       name: 'Neon Sunset',
       state: {
         shapes: [{
           id: 'neon-sunset',
           x: 0.5, y: 0.5,
-          w: 0.92, h: 0.96,
+          w: 0.86, h: 0.94,
           rot: 0,
-          roundness: 2.9,
-          softness: 0.42,
-          glow: 1.02,
+          roundness: 3.2,
+          softness: 0.24,
+          glow: 1.0,
           opacity: 1.0,
           grain: 0.028,
           visible: true,
@@ -78,52 +100,23 @@
           gradient: {
             angle: 90,
             stops: [
-              { pos: 0.00, color: '#e02814' },
-              { pos: 0.26, color: '#f89028' },
-              { pos: 0.50, color: '#f8d8c8' },
-              { pos: 0.72, color: '#4a90ee' },
-              { pos: 1.00, color: '#2e26a8' },
+              { pos: 0.00, color: '#dc2814' },
+              { pos: 0.15, color: '#e64514' },
+              { pos: 0.35, color: '#f58520' },
+              { pos: 0.47, color: '#ffb860' },
+              { pos: 0.53, color: '#f0c8b8' },
+              { pos: 0.57, color: '#a0c4f0' },
+              { pos: 0.65, color: '#4888ee' },
+              { pos: 0.80, color: '#3a58d4' },
+              { pos: 1.00, color: '#321ea0' },
             ],
           },
         }],
         background: '#000000',
-        exportW: 1920, exportH: 1080,
+        exportW: 1920,
+        exportH: 1080,
       },
     },
-    {
-  name: 'Neon Sunset',
-  state: {
-    shapes: [{
-      id: 'neon-sunset',
-      x: 0.5, y: 0.5,
-      w: 0.86, h: 0.94,
-      rot: 0,
-      roundness: 3.2,
-      softness: 0.24,
-      glow: 1.0,
-      opacity: 1.0,
-      visible: true,
-      blend: 'normal',
-      gradient: {
-        angle: 90,
-        stops: [
-          { pos: 0.00, color: '#dc2814' },
-          { pos: 0.15, color: '#e64514' },
-          { pos: 0.35, color: '#f58520' },
-          { pos: 0.47, color: '#ffb860' },
-          { pos: 0.53, color: '#f0c8b8' },
-          { pos: 0.57, color: '#a0c4f0' },
-          { pos: 0.65, color: '#4888ee' },
-          { pos: 0.80, color: '#3a58d4' },
-          { pos: 1.00, color: '#321ea0' },
-        ],
-      },
-    }],
-    background: '#000000',
-    exportW: 1920,
-    exportH: 1080,
-  },
-},
     {
       name: 'Cold Aurora',
       state: {
@@ -199,24 +192,23 @@
     };
   }
 
+  /* Every numeric field comes from the schema table, so adding one is
+     a single line above and cannot be silently dropped here. */
   function normaliseShape(raw) {
     const src = raw && typeof raw === 'object' ? raw : {};
-    return {
+    const out = {
       id: typeof src.id === 'string' && src.id ? src.id : makeId(),
-      x: num(src.x, DEFAULT_SHAPE.x),
-      y: num(src.y, DEFAULT_SHAPE.y),
-      w: Math.max(0.001, num(src.w, DEFAULT_SHAPE.w)),
-      h: Math.max(0.001, num(src.h, DEFAULT_SHAPE.h)),
-      rot: num(src.rot, DEFAULT_SHAPE.rot),
-      roundness: Math.max(0.01, num(src.roundness, DEFAULT_SHAPE.roundness)),
-      softness: Math.max(0.001, num(src.softness, DEFAULT_SHAPE.softness)),
-      glow: num(src.glow, DEFAULT_SHAPE.glow),
-      opacity: clamp(num(src.opacity, DEFAULT_SHAPE.opacity), 0, 1),
       visible: src.visible !== false,
       blend: BLEND_MODES.includes(src.blend) ? src.blend : DEFAULT_SHAPE.blend,
       gradient: normaliseGradient(src.gradient, DEFAULT_GRADIENT),
-      grain: clamp(num(src.grain, DEFAULT_SHAPE.grain), 0, 1),
     };
+    for (const f of SHAPE_SCHEMA) {
+      let v = num(src[f.key], DEFAULT_SHAPE[f.key]);
+      if (f.min !== undefined) v = Math.max(f.min, v);
+      if (f.max !== undefined) v = Math.min(f.max, v);
+      out[f.key] = v;
+    }
+    return out;
   }
 
   /* v1 (shape/main/horiz/mix) → v2 (shapes[]). */
@@ -361,6 +353,7 @@
   GS.DEFAULT_SHAPE = DEFAULT_SHAPE;
   GS.BUILTIN_PRESETS = BUILTIN_PRESETS;
   GS.BLEND_MODES = BLEND_MODES;
+  GS.SHAPE_SCHEMA = SHAPE_SCHEMA;
   GS.MAX_BLUR = MAX_BLUR;
   GS.makeShapeId = makeId;
 })(window.GS);

@@ -1,157 +1,103 @@
 # Colorscapes / Gradient Studio
 
-Single-page WebGL gradient generator. **16 files, zero dependencies, zero tooling.**
-No `package.json`, no bundler, no tests, no lint, no CI — this is deliberate. Do not add them.
+Single-page WebGL gradient generator. **Zero dependencies, zero tooling** — no `package.json`, no
+bundler, no tests, no lint, no CI, and do not add them. Open `index.html` over `file://`: that is the
+whole dev loop *and* the whole verification step. WebGL is hard-required (`app.js` probes for it and
+renders a fatal note if absent).
 
-## Run it
+Every module is an IIFE attaching its public API to `window.GS`. **The `<script>` order in
+`index.html` is the dependency graph** — there is no module loader, so a file reading `GS.utils` at
+IIFE-evaluation time throws if tagged too early. Only top-level `const { x } = GS.y` makes order
+matter; calls inside handlers do not.
 
-Open `index.html` directly (`file://` works — plain `<script>` tags, no modules, no `fetch`).
-That is the entire dev loop and the entire verification step: there is nothing to run, build, or lint.
+`namespace`/`utils`/`color`/`geom` — `GS`/`byId`, helpers, hex↔OkLab, **all shape geometry**.
+`gradient`/`shaders`/`renderer` — stop sampling, `sortStops`, three GLSL programs + `BLUR_PAIRS`,
+`Renderer` (context, programs, FBOs, kernel). `state`/`storage` — `GS.state`, `SHAPE_SCHEMA`,
+normalisation, presets, randomisers (`localStorage` key `gradient-studio-presets-v1`).
+`ui`/`preview`/`layout` — every panel + toast/modal; canvas sizing, rAF loop, hit-test; 2D editor
+canvas. `share`/`exporter`/`app.js` — state ⇄ URL hash; offscreen PNG; boot: hash → `applyState` →
+WebGL check → `ui.init()`.
 
-WebGL is hard-required. `app.js:10` probes for it and renders a fatal note if absent.
+## State
 
-## Architecture
+`GS.state` is **one live mutable object** and `applyState(raw)` normalises into it *in place*, so
+external references stay valid. Never reassign `GS.state` — mutate fields. `GS.selection = { id }`
+is UI-only and deliberately not serialised. State must stay plain-JSON serialisable and compact: it
+round-trips through the URL hash as base64. Schema is v2 (`shapes[]`); `migrateLegacy` keeps v1
+share links alive — never delete it, keep migrations additive. `stop.color` must stay `#rrggbb`;
+`isHex` rejects anything else during normalisation.
 
-Every module is an IIFE that attaches its public API to `window.GS`:
-
-```js
-(function (GS) {
-  'use strict';
-  ...
-})(window.GS);
-```
-
-**The `<script>` order in `index.html:83-96` is the dependency graph** — there is no module
-loader, so a file that reads `GS.utils` or `GS.gradient` at IIFE-evaluation time will throw if
-tagged too early. Adding a module means adding a tag *and* placing it after its dependencies
-(`namespace` → `utils`/`color` → `gradient`/`shaders` → `renderer` → `state` → …).
-Cross-module calls made *inside* handlers are order-independent; only top-level
-`const { x } = GS.y` destructuring is not.
-
-| File | Owns |
-|---|---|
-| `src/namespace.js` | `window.GS`, `GS.byId` |
-| `src/utils.js` | `clamp`, `deg2rad`, `clone`, `debounce`, base64, `dataURLtoBlob` |
-| `src/color.js` | hex↔RGB, `hslToHex`, public OkLab conversions |
-| `src/gradient.js` | OkLab stop sampling, `sortStops`, `widestGapMidpoint`, `computeExtent` |
-| `src/shaders.js` | three GLSL programs + `BLUR_PAIRS` (no WebGL calls) |
-| `src/renderer.js` | `Renderer` class — context, programs, FBOs, blur kernel |
-| `src/state.js` | `GS.state`, `applyState`, normalisation, randomisers, presets |
-| `src/storage.js` | user presets in `localStorage` |
-| `src/ui.js` | every panel, controls, toast, modal — the largest file |
-| `src/preview.js` | preview canvas sizing, rAF loop, pointer hit-test on the render |
-| `src/layout.js` | 2D editor canvas (drag / dbl-click add / right-click delete) |
-| `src/share.js` | state ⇄ URL hash, copy-link |
-| `src/exporter.js` | offscreen `Renderer` → PNG download |
-| `app.js` | boot: read hash → `applyState` → WebGL check → `ui.init()` |
-
-## State model
-
-`GS.state` is **one live mutable object**, and `applyState(raw)` normalises into it *in place*
-(`src/state.js:259`) so external references stay valid.
-
-- **Never reassign `GS.state`.** Mutate fields, or go through `GS.applyState()`.
-- Every value that arrives from the hash, a preset, or `randomState()` must pass
-  `normaliseShape`/`normaliseGradient` (`src/state.js:186-220`). **A new shape field that is not
-  added there is silently dropped or defaulted** — this is the single most likely bug when
-  extending the schema.
-- Schema is v2 (`shapes[]`). `migrateLegacy` (`src/state.js:223`) keeps v1 share links working —
-  don't delete it, and keep migrations additive.
-- `GS.selection = { id }` is UI-only and deliberately not serialised.
-- State round-trips through the URL hash as base64 JSON, so it must stay plain-JSON
-  serialisable and compact (`clone` uses `structuredClone`).
+Every value arriving from a hash, preset or `randomState()` must pass `normaliseShape`, which is
+**generated from `SHAPE_SCHEMA`** (`state.js`) — one table line per numeric field, and the panel and
+normaliser follow. A field not in that table is silently dropped or defaulted; that is the most
+likely bug when extending the schema.
 
 ## Render discipline
 
-**Mutate state, then call `GS.preview.schedule()`** — it is rAF-coalesced and also redraws the
-layout canvas and syncs the hash. Never call `renderer.render()` from UI code.
+**Mutate state, then `GS.preview.schedule()`** — rAF-coalesced, and it also redraws the layout canvas
+and syncs the hash. Never call `renderer.render()` from UI code. Structural change →
+`GS.ui.refreshSelection()` / `rebuildAll()`; export-size change → `GS.preview.layout()` **plus**
+`GS.layout.resize()`, since the preview aspect follows `exportW/exportH`.
 
-- Selection / structural change (`addShape`, `deleteShape`, `refreshSelection`, preset load) →
-  `GS.ui.refreshSelection()` or `GS.ui.rebuildAll()`; these clear and re-`build*` panels.
-- Export-size change → `GS.preview.layout()` **plus** `GS.layout.resize()` (both synchronous;
-  the preview aspect depends on `exportW/exportH`).
-- Panel listeners are **delegated on container elements and bound once in `ui.init()`**
-  (`src/ui.js:965`) precisely so `rebuildAll()` doesn't leak handlers. Keep it that way: add a
-  listener to the container, not to rows you build.
+Panel listeners are **delegated on containers and bound once in `ui.init()`** precisely so rebuilds
+cannot leak — never bind to a row you build. Rows are matched by `data-key`, never by position, so
+schema rows may be reordered or interleaved freely. `visible === false` and `opacity <= 0` are
+draw-time skips in `_drawShapes`, not UI-level. `share.sync()` is debounced 300 ms with
+`replaceState`, so the back button stays clean.
 
-## WebGL pipeline (`renderer.js`, `shaders.js`)
+All geometry is normalised 0..1 UV against the export aspect (x aspect-scaled); `rot` is degrees,
+`roundness` the superellipse exponent. Shapes paint in array order — last on top, hit-tests iterate
+backwards. Stops are shown in **position** order, so reordering them swaps *colours* between fixed
+positions and region width is edited by moving positions themselves; the shapes list instead moves
+whole objects, because there array order *is* the Z-order. `Delete`/`Backspace` and `Ctrl/Cmd+D`
+are suppressed while focus is in an input/select/textarea.
 
-One context, one fullscreen triangle-pair quad, three programs, three FBOs. Four stages:
+## WebGL
 
-```
-shapes   -> scene FBO   transparent, per-shape glBlendFunc
-blur X   -> blur FBO A
-blur Y   -> blur FBO B
-composite-> canvas      scene over the background colour
-```
+`shapes → scene FBO → blur X → blur Y → composite`. **Blur runs after the shapes have merged** — that
+is the point: overlaps cross-fade into a real third colour, then the single image is smeared. Don't
+move it into the shape pass. Everything is premultiplied; `GL_LINEAR` on premultiplied RGBA is what
+makes it correct, so keep new blend modes premultiplied-source. Blur runs on a buffer downscaled by
+`MIN_BLUR_SCALE`; tap offsets are texels of the *destination*, not the source.
 
-- **Blur runs after the shapes have merged** — that is the entire point (overlapping shapes
-  cross-fade into a real third colour, then the single image is smeared). Don't move it into the
-  shape pass.
-- Everything is **premultiplied**; `GL_LINEAR` on premultiplied RGBA is what makes the blur
-  correct. Keep new blend modes premultiplied-source.
-- `state.blur` is a **fraction of frame width, not pixels** (`renderer.js:463`), so preview and
-  4K export smear identically. Never store pixels.
-- `measureSigma` (`renderer.js:152`) exists because folding integer taps into half-texel linear
-  taps widens the kernel — the sigma is measured through the same taps the GPU uses. Don't
-  substitute the analytic value.
-- Blur passes run on a **downscaled** buffer (`MIN_BLUR_SCALE`, `renderer.js:37`); offsets are in
-  texels of the *destination*, not the source.
-- The gradient is baked **CPU-side in OkLab into a 1024×1 RGBA texture** (`GRAD_TEX_WIDTH`),
-  pooled and reused across draws. Keep the shader cheap; it just samples.
-- The preview never renders above 2048px (`MAX_DIM`, `preview.js:15`); export size is unbounded
-  and uses a **separate, long-lived offscreen `Renderer` with `preserveDrawingBuffer: true`**
-  (`exporter.js:15`). One context per canvas, ever — a new one per export leaks contexts.
+`state.blur` is a **fraction of frame width, never pixels**, so preview and 4K export smear alike.
+`measureSigma` exists because folding integer taps into half-texel linear taps widens the kernel:
+sigma is measured through the same taps the GPU uses — do not substitute the analytic value. The
+gradient is baked CPU-side in OkLab into a pooled 1024×1 texture; the shader only samples.
 
-## Cross-file coupling (change both sides)
+The preview never renders above `MAX_DIM` (2048). Export size is unbounded and uses a **separate,
+long-lived offscreen `Renderer` with `preserveDrawingBuffer`** (`exporter.js`). One context per
+canvas, ever — a fresh one per export leaks contexts.
+
+## Change both sides
 
 | If you change | Also update |
 |---|---|
-| `BLEND_MODES` (`state.js:16`) | `applyBlend` switch (`renderer.js:97`) |
-| `MAX_BLUR` (`state.js:21`) | `BLUR_PAIRS` (`shaders.js:27`) — MAX_BLUR exists because the kernel runs out of pairs |
-| `SHAPE_FIELDS` (`ui.js:26`) | `syncShapeInputs` (`ui.js:118`) matches `.ctrl` rows **by index** — append new rows *after* the field rows, never before |
-| OkLab math | duplicated in `gradient.js:26-62` *and* `color.js:53-98`; `gradient.js` has its own private copy |
-| Superellipse hit-test | duplicated near-verbatim in `preview.js:78` and `layout.js:26` |
-| Superellipse rotation | `shapeMask` and both hit-tests rotate **world → local**; `superellipsePath` (`layout.js:57`) rotates **local → world**, i.e. the inverse matrix (`-sin`). A forward matrix there draws every rotated outline mirrored against the render |
-| `normaliseShape` clamps | `shapeMask` in `shaders.js:76` mirrors them (`roundness ≥ 0.01`, `softness ≥ 0.001`). The roundness floor is an epsilon, not a shape limit — `r = 1` is a rhombus, `r < 1` a concave 4-point star, and `1/r` in both the shader and `superellipsePath` (`2/n`) goes infinite at exactly 0 |
-| Grain size | `GRAIN_CELLS` (`renderer.js:39`) is fed to the shader as `u_grainScale` in **cells across the frame**, so grain is a fraction of the frame and not a pixel count. `hash21` must keep a small multiplier: `fract(p * 123.34)` loses the lattice at 5120px (the product is ~630k, one float32 step is 1/16) and the field tiles — the whole frame then holds ~13k distinct values instead of millions |
+| `BLEND_MODES` | `applyBlend` in `renderer.js` |
+| `MAX_BLUR` | `BLUR_PAIRS` in `shaders.js` — the kernel runs out of pairs |
+| `SHAPE_SCHEMA` `min` | `shapeMask` in `shaders.js` — same floors (`roundness ≥ 0.01`, `softness ≥ 0.001`) |
+| `geom.js` rotation | the shader rotates **world → local**; `geom.toWorld` is its inverse |
+| OkLab math | duplicated by hand in `gradient.js` *and* `color.js` — no build step shares a header |
 
-## Coordinates
+The `roundness` floor is an epsilon, not a shape limit: `r = 1` is a rhombus, `r < 1` a concave
+4-point star, and the `1/r` in both shader and editor goes infinite at exactly 0.
 
-All shape geometry is **normalised 0..1 UV against the export aspect** (`exportW/exportH`), not
-pixels. x is scaled by aspect in hit-tests; `rot` is degrees; `roundness` is the superellipse
-exponent. Shapes render in array order — last is on top; hit-tests iterate backwards.
+`geom.js` is the only copy of the hit-test, resize and handle maths. It was duplicated near-verbatim
+in `preview.js` and `layout.js` and the copies disagreed: one ignored rotation, the other rotated
+the wrong way, so every rotated outline was mirrored against the render. Add new geometric
+predicates there; do not reopen a copy. `GRAIN_CELLS` reaches the shader as `u_grainScale` in
+**cells across the frame**, so grain is a fraction of the frame, not a pixel count; `hash21` must
+keep its small multiplier or the lattice dies at 5120 px and the whole frame holds ~13k values.
 
-## Gotchas
-
-- **The gradient strip must not use a CSS gradient.** `stripBackground` (`ui.js:138`) builds a
-  24-stop `linear-gradient` string from OkLab samples on purpose: browsers interpolate those in
-  sRGB and show a harsher ramp than the preview. Same reason `layout.js` pre-samples 3 stops.
-- Stops are always displayed in **position** order; "reorder" in `reorderStops` swaps *colours*
-  between fixed positions. Region width is edited by moving the positions themselves — there is no
-  separate size control.
-- `shape.visible === false` and `opacity <= 0` are both draw-time skips in `_drawShapes`, not
-  UI-level.
-- `share.sync()` is debounced 300ms and uses `replaceState`, so the back button stays clean —
-  state is always in the URL, not in memory.
-- localStorage key: `gradient-studio-presets-v1` (`storage.js:10`). Reads never throw by design.
-- Keyboard: `Delete`/`Backspace` delete the selected shape, `Ctrl/Cmd+D` duplicates, but both are
-  suppressed while focus is in an input/select/textarea (`ui.js:834`).
-- `stop.color` inputs must stay `#rrggbb` — `isHex` rejects anything else during normalisation.
+**Never render the gradient strip with a CSS gradient** — `stripBackground` and the layout swatches
+pre-sample OkLab, because browsers interpolate CSS gradients in sRGB and show a harsher ramp than
+the preview.
 
 ## Style
 
 2-space indent, single quotes, semicolons, trailing commas in multi-line literals. Each file opens
-with a `/* ==== Title ==== */` banner explaining the module's role; sections inside use
-`/* ---------- name ---------- */`. Comments explain **why** a non-obvious choice was made (the
-sigma measurement, the blur ordering, the OkLab choice) — match that density; don't narrate the
-obvious.
-
-Commit messages are in **Russian** and describe the architecture, not just the diff.
-
-## Known defects
-
-- `BUILTIN_PRESETS` (`state.js:62`) contains **two presets named "Neon Sunset"**
-  (entries at lines 63-92 and 93-126) — almost certainly a bad paste, and the mangled
-  indentation around them is a symptom. Fixing it is in scope for anyone touching presets.
-- Stray indentation left in `state.js` at lines 35 and 63.
+with a `/* ==== Title ==== */` banner explaining its role; inner sections use
+`/* ---------- name ---------- */`. Comments explain **why** a non-obvious choice was made (sigma
+measurement, blur ordering, OkLab, why UI ranges differ from schema clamps) — match that density,
+don't narrate the obvious. Commit messages are in **Russian** and describe the architecture, not
+just the diff.
