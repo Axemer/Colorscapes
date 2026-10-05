@@ -1,22 +1,25 @@
 # Colorscapes
 
-A minimal WebGL-based gradient editor. No dependencies, bundlers, build tools, or tests — just plain HTML, CSS, and vanilla JavaScript.
+A minimal WebGL-based gradient editor. No dependencies, no bundlers, no build tools, no tests — just plain HTML, CSS, and vanilla JavaScript.
 
 ## Overview
 
-Colorscapes lets you create multi-layered gradients using custom shapes, tweak color stops, adjust blend modes and blur, and export your design as a PNG.
+Colorscapes lets you build multi-layered gradients out of custom shapes. You can tweak color stops, adjust blend modes and blur, and export the result as a PNG.
 
 ## Features
 
-- **Flexible shapes** – Control position, rotation, corner rounding, and softness for each shape
-- **Editable color stops** – Add, remove, and reorder color stops with ease
-- **Smooth blending** – Two-pass blur for natural-looking overlaps between layers
-- **Blend modes** – Mix layers using a variety of compositing modes
-- **High-resolution PNG export** – Export your gradient in crisp, high-res PNGs
-- **Shareable URLs** – The entire gradient state is encoded in the URL hash, so you can share links and restore designs instantly
-- **Presets & random generator** – Jump in with built-in presets or generate something random
-- **Auto-save to localStorage** – Your custom presets are saved automatically between sessions
+**Shapes.** Each shape has its own position, rotation, corner rounding, and softness. Stack as many as you need.
+
+**Color stops.** Add, remove, and reorder stops per shape.
+
+**Blending.** A two-pass blur softens overlaps between layers, and you can pick from a range of compositing modes to mix them.
+
+**Export.** High-resolution PNG output, ready to drop into a design.
+
+**Shareable URLs.** The full gradient state is encoded in the URL hash, so a link restores the exact design.
+
+**Presets.** Start from a built-in preset or generate something random, and save your own — custom presets persist in `localStorage` between sessions.
 
 ## Requirements
 
-A modern browser with WebGL support. If WebGL is unavailable, the app will show a clear error message.
+A modern browser with WebGL. If WebGL is unavailable, the app shows an error message instead of failing silently.
