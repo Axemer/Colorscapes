@@ -113,7 +113,8 @@ composite-> canvas      scene over the background colour
 | OkLab math | duplicated in `gradient.js:26-62` *and* `color.js:53-98`; `gradient.js` has its own private copy |
 | Superellipse hit-test | duplicated near-verbatim in `preview.js:78` and `layout.js:26` |
 | Superellipse rotation | `shapeMask` and both hit-tests rotate **world → local**; `superellipsePath` (`layout.js:57`) rotates **local → world**, i.e. the inverse matrix (`-sin`). A forward matrix there draws every rotated outline mirrored against the render |
-| `normaliseShape` clamps | `shapeMask` in `shaders.js:76` mirrors them (`roundness ≥ 1.001`, `softness ≥ 0.001`) |
+| `normaliseShape` clamps | `shapeMask` in `shaders.js:76` mirrors them (`roundness ≥ 0.01`, `softness ≥ 0.001`). The roundness floor is an epsilon, not a shape limit — `r = 1` is a rhombus, `r < 1` a concave 4-point star, and `1/r` in both the shader and `superellipsePath` (`2/n`) goes infinite at exactly 0 |
+| Grain size | `GRAIN_CELLS` (`renderer.js:39`) is fed to the shader as `u_grainScale` in **cells across the frame**, so grain is a fraction of the frame and not a pixel count. `hash21` must keep a small multiplier: `fract(p * 123.34)` loses the lattice at 5120px (the product is ~630k, one float32 step is 1/16) and the field tiles — the whole frame then holds ~13k distinct values instead of millions |
 
 ## Coordinates
 

@@ -208,7 +208,7 @@
       w: Math.max(0.001, num(src.w, DEFAULT_SHAPE.w)),
       h: Math.max(0.001, num(src.h, DEFAULT_SHAPE.h)),
       rot: num(src.rot, DEFAULT_SHAPE.rot),
-      roundness: Math.max(1.001, num(src.roundness, DEFAULT_SHAPE.roundness)),
+      roundness: Math.max(0.01, num(src.roundness, DEFAULT_SHAPE.roundness)),
       softness: Math.max(0.001, num(src.softness, DEFAULT_SHAPE.softness)),
       glow: num(src.glow, DEFAULT_SHAPE.glow),
       opacity: clamp(num(src.opacity, DEFAULT_SHAPE.opacity), 0, 1),

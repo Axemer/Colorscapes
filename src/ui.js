@@ -29,7 +29,7 @@
     ['w', 'Width', 0.01, 3, 0.005],
     ['h', 'Height', 0.01, 3, 0.005],
     ['rot', 'Rotation', -180, 180, 0.5],
-    ['roundness', 'Roundness', 1.2, 20, 0.05],
+    ['roundness', 'Roundness', 0.01, 20, 0.05],
     ['softness', 'Softness', 0.001, 2, 0.005],
     ['glow', 'Glow', 0.1, 2, 0.01],
     ['opacity', 'Opacity', 0, 1, 0.01],
@@ -792,17 +792,12 @@
       }));
     });
 
-    const actions = el('div', 'btn-row');
-    actions.append(
+    body.append(
+      size,
+      presets,
+      button('btn primary', 'Export PNG', () => GS.exportPNG()),
       button('btn', 'Copy link', () => GS.share.copyLink()),
-      button('btn', 'Random', () => {
-        GS.applyState(GS.randomState());
-        rebuildAll();
-        GS.toast('Randomised');
-      }),
     );
-
-    body.append(size, presets, button('btn primary', 'Export PNG', () => GS.exportPNG()), actions);
   }
 
   /* ---------- Presets ---------- */
@@ -833,6 +828,12 @@
     const builtin = el('div', 'preset-list');
     GS.BUILTIN_PRESETS.forEach((p, i) => builtin.appendChild(presetItem(p, 'builtin', i)));
     body.appendChild(builtin);
+
+    body.appendChild(button('btn', 'Random', () => {
+      GS.applyState(GS.randomState());
+      rebuildAll();
+      GS.toast('Randomised');
+    }));
 
     const user = GS.storage.loadUserPresets();
     body.appendChild(el('div', 'section-label section-label-spaced', 'My presets'));

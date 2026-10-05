@@ -16,10 +16,13 @@
   const MAX_HEIGHT = 240;
   const GRID_DIV = 4;
   const SUPER_STEPS = 96;
+  const HANDLE_SIZE = 6;
+  const HANDLE_HIT = 10;
 
   let canvas = null;
   let ctx = null;
-  let drag = null;
+  let drag = null; // move drag
+  let resizeDrag = null; // resize drag: { shape, handle, startW, startH, startX, startY }
 
   /* ---------- geometry ---------- */
 
@@ -35,9 +38,47 @@
     const hh = Math.max(shape.h * 0.5, 1e-6);
     const dx = Math.abs(rpx) / hw;
     const dy = Math.abs(rpy) / hh;
-    const r = Math.max(shape.roundness, 1.001);
+    const r = Math.max(shape.roundness, 0.01);
     const dist = Math.pow(Math.pow(dx, r) + Math.pow(dy, r), 1 / r);
     return dist <= 1;
+  }
+
+  function getHandlePoints(shape, w, h) {
+    const cx = shape.x * w;
+    const cy = shape.y * h;
+    const rx = shape.w * 0.5 * w;
+    const ry = shape.h * 0.5 * h;
+    const rot = deg2rad(shape.rot);
+    const ca = Math.cos(rot), sa = Math.sin(rot);
+    const points = [];
+    const dirs = [
+      [-1, -1], [0, -1], [1, -1],
+      [-1,  0],          [1,  0],
+      [-1,  1], [0,  1], [1,  1],
+    ];
+    for (let i = 0; i < dirs.length; i++) {
+      const dx = dirs[i][0], dy = dirs[i][1];
+      const px = cx + (dx * rx * ca - dy * ry * sa);
+      const py = cy + (dx * rx * sa + dy * ry * ca);
+      points.push({ x: px, y: py, dx, dy, type: 'resize', index: i });
+    }
+    points.push({ x: cx, y: cy, type: 'center' });
+    return points;
+  }
+
+  function hitHandle(shape, w, h, u, v) {
+    const canvasW = w;
+    const canvasH = h;
+    const px = u * canvasW;
+    const py = v * canvasH;
+    const pts = getHandlePoints(shape, canvasW, canvasH);
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      if (p.type === 'center') continue;
+      const d = Math.hypot(px - p.x, py - p.y);
+      if (d <= HANDLE_HIT) return p;
+    }
+    return null;
   }
 
   function hitTest(u, v) {
@@ -134,6 +175,28 @@
     ctx.lineWidth = selected ? 1.8 : 1;
     ctx.stroke();
 
+    if (selected) {
+      const rot2 = deg2rad(shape.rot);
+      const ca2 = Math.cos(rot2), sa2 = Math.sin(rot2);
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.lineWidth = 1;
+      const dirs = [
+        [-1,-1],[0,-1],[1,-1],
+        [-1,0],        [1,0],
+        [-1,1],[0,1],[1,1],
+      ];
+      for (let i = 0; i < dirs.length; i++) {
+        const dx = dirs[i][0], dy = dirs[i][1];
+        const pxh = cx + (dx * rx * ca2 - dy * ry * sa2);
+        const pyh = cy + (dx * rx * sa2 + dy * ry * ca2);
+        ctx.beginPath();
+        ctx.arc(pxh, pyh, HANDLE_SIZE, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+
     // Center handle
     ctx.beginPath();
     ctx.arc(cx, cy, selected ? 4.5 : 3, 0, Math.PI * 2);
@@ -182,7 +245,48 @@
 
   function onPointerDown(e) {
     const { u, v } = toUV(e);
-    const shape = hitTest(u, v);
+    let shape = null;
+    if (GS.selection.id) {
+      shape = GS.state.shapes.find(s => s.id === GS.selection.id);
+    }
+    if (shape) {
+      const h = hitHandle(shape, canvas.width, canvas.height, u, v);
+      if (h) {
+        const canvasW = canvas.width;
+      const canvasH = canvas.height;
+      const theta = deg2rad(shape.rot);
+      const ca = Math.cos(theta), sa = Math.sin(theta);
+      const cx = shape.x * canvasW;
+      const cy = shape.y * canvasH;
+      const mx = u * canvasW;
+      const my = v * canvasH;
+      const lmx = (mx - cx) * ca + (my - cy) * sa;
+      const lmy = -(mx - cx) * sa + (my - cy) * ca;
+      resizeDrag = {
+        shape,
+        handle: h,
+        startW: shape.w,
+        startH: shape.h,
+        startLmx: lmx,
+        startLmy: lmy,
+        startRx: shape.w * 0.5,
+        startRy: shape.h * 0.5,
+        dirX: h.dx,
+        dirY: h.dy,
+        canvasW,
+        canvasH,
+        centerX: shape.x,
+        centerY: shape.y,
+      };
+        GS.selection.id = shape.id;
+        GS.ui.refreshSelection();
+        try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+        e.preventDefault();
+        return;
+      }
+    }
+
+    shape = hitTest(u, v);
 
     if (!shape) {
       if (GS.selection.id) {
@@ -201,6 +305,56 @@
   }
 
   function onPointerMove(e) {
+    if (resizeDrag) {
+      const { u, v } = toUV(e);
+      const rd = resizeDrag;
+      const shape = rd.shape;
+      const canvasW = rd.canvasW;
+      const canvasH = rd.canvasH;
+      const theta = deg2rad(shape.rot);
+      const ca = Math.cos(theta), sa = Math.sin(theta);
+      const cx = shape.x * canvasW;
+      const cy = shape.y * canvasH;
+      const mx = u * canvasW;
+      const my = v * canvasH;
+      const lmx = (mx - cx) * ca + (my - cy) * sa;
+      const lmy = -(mx - cx) * sa + (my - cy) * ca;
+      const dlmx = lmx - rd.startLmx;
+      const dlmy = lmy - rd.startLmy;
+      let dist = Math.hypot(dlmx, dlmy);
+      let scale = dist < 5 ? 0.005 : (dist < 20 ? 0.01 : (dist < 60 ? 0.02 : 0.03));
+      let nw = rd.startW + rd.dirX * dlmx * scale;
+      let nh = rd.startH + rd.dirY * dlmy * scale;
+      if (rd.dirX === 0) nw = rd.startW;
+      if (rd.dirY === 0) nh = rd.startH;
+      if (e.shiftKey && rd.dirX !== 0 && rd.dirY !== 0) {
+        const ratio = rd.startW / rd.startH;
+        if (nw / nh > ratio) nw = nh * ratio;
+        else nh = nw / ratio;
+      }
+      nw = Math.max(0.001, Math.min(10, nw));
+      nh = Math.max(0.001, Math.min(10, nh));
+      if (e.altKey || e.metaKey) {
+        const newRx = nw * 0.5;
+        const newRy = nh * 0.5;
+        const dRx = newRx - rd.startRx;
+        const dRy = newRy - rd.startRy;
+        const theta = deg2rad(shape.rot);
+        const ca = Math.cos(theta), sa = Math.sin(theta);
+        const dU = rd.dirX * dRx * ca - rd.dirY * dRy * sa;
+        const dV = rd.dirX * dRx * sa + rd.dirY * dRy * ca;
+        shape.x = rd.centerX - dU;
+        shape.y = rd.centerY - dV;
+      } else if (e.shiftKey && rd.dirX !== 0 && rd.dirY !== 0) {
+        // already handled
+      }
+      shape.w = nw;
+      shape.h = nh;
+      draw();
+      GS.preview.schedule();
+      GS.ui.syncShapeInputs();
+      return;
+    }
     if (!drag) return;
     const { u, v } = toUV(e);
     drag.shape.x = u + drag.offX;
@@ -211,6 +365,11 @@
   }
 
   function onPointerUp(e) {
+    if (resizeDrag) {
+      try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+      resizeDrag = null;
+      return;
+    }
     if (!drag) return;
     try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
     drag = null;

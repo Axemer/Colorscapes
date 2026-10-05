@@ -52,6 +52,7 @@ uniform float u_softness;
 uniform float u_glow;
 uniform float u_opacity;
 uniform float u_grain;
+uniform vec2  u_grainScale;
 
 uniform sampler2D u_gradTex;
 uniform float u_gradAngle;
@@ -62,10 +63,62 @@ uniform float u_gradExtent;
    Hash
    --------------------------------------------------------- */
 
+/* Precision-safe float hash, Hoskins-style. The usual
+   fract(p * bigConst) shape collapses at export sizes: at
+   5120px across the product reaches ~630k, where a float32 step
+   is already 1/16, so the input lattice falls to a couple of
+   hundred states and the field tiles visibly. Scaling by a small
+   constant keeps every product under 1024 and leaves the whole
+   mantissa to the mixing. */
 float hash21(vec2 p){
-  p = fract(p * vec2(123.34, 456.21));
-  p += dot(p, p + 45.32);
-  return fract(p.x * p.y);
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+
+/* ---------------------------------------------------------
+   Grain
+   --------------------------------------------------------- */
+
+/* Value noise: one hash per lattice corner, smoothstepped
+   between them. Interpolating is what lets a cell be a fraction
+   of the frame instead of a single pixel, so a 4K export carries
+   the same grain the preview showed rather than the same one
+   pixel four thousand times. */
+float valueNoise(vec2 p){
+  vec2 i = floor(p);
+  vec2 f = p - i;
+  f = f * f * (3.0 - 2.0 * f);
+
+  float a = hash21(i);
+  float b = hash21(i + vec2(1.0, 0.0));
+  float c = hash21(i + vec2(0.0, 1.0));
+  float d = hash21(i + vec2(1.0, 1.0));
+
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+/* Two terms: the value-noise field sets how big the grain is, the
+   per-pixel hash keeps the sparkle real film grain has. The lattice
+   is turned off-axis by ~31.7°, otherwise the interpolation grid
+   lines up with the pixel rows and shows through as a mesh.
+
+   The 1.6 puts the sum back at the standard deviation of the old
+   per-pixel field, so the slider keeps meaning the same amount of
+   noise; the two terms are decorrelated enough that half and half
+   reads the same roughness at 800px and at 5K. */
+float grainField(vec2 uv){
+  vec2 q = uv * u_grainScale;
+  q = vec2(
+    q.x * 0.85065 - q.y * 0.52573,
+    q.x * 0.52573 + q.y * 0.85065
+  );
+
+  float structured = valueNoise(q) - 0.5;
+  float crisp = hash21(floor(uv * u_resolution)) - 0.5;
+
+  return (structured + crisp) * 0.5 * 1.6;
 }
 
 
@@ -91,7 +144,7 @@ float shapeMask(vec2 uv){
 
   vec2 d = abs(rp) / half_size;
 
-  float r = max(u_roundness, 1.001);
+  float r = max(u_roundness, 0.01);
 
   float dist = pow(
     pow(max(d.x, 1e-6), r) +
@@ -157,9 +210,12 @@ void main(){
 
   vec3 color = gradientColor(uv);
 
-  /* Grain belongs to the field, so the blur smears it too. */
-  float g = hash21(uv * u_resolution) - 0.5;
-  color += vec3(g * u_grain);
+  /* Grain belongs to the field, so the blur smears it too, and the
+     same field is sampled by every shape: overlapping figures share
+     one grain instead of each carrying its own copy. */
+  if (u_grain > 0.0) {
+    color += vec3(grainField(uv) * u_grain);
+  }
 
   float alpha = mask * u_opacity;
 

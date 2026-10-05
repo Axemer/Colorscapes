@@ -36,10 +36,18 @@
      the cost flat as the radius grows instead of quadratic. */
   const MIN_BLUR_SCALE = 0.03;
 
+  /* Grain is sized in cells across the frame width, not in pixels,
+     so the preview and an export show the same grain instead of an
+     export that is four times finer than what was approved. Capped
+     at the frame's own pixel count: below the cap a cell is one
+     pixel (plain film grain, no interpolation to alias), above it
+     the cell grows with the frame. */
+  const GRAIN_CELLS = 1024;
+
   const SHAPE_UNIFORMS = [
     'u_resolution', 'u_center', 'u_size', 'u_shapeAngle', 'u_roundness',
-    'u_softness', 'u_glow', 'u_opacity', 'u_grain', 'u_gradTex',
-    'u_gradAngle', 'u_gradExtent',
+    'u_softness', 'u_glow', 'u_opacity', 'u_grain', 'u_grainScale',
+    'u_gradTex', 'u_gradAngle', 'u_gradExtent',
   ];
   const BLUR_UNIFORMS = ['u_src', 'u_texel', 'u_offsets[0]', 'u_weights[0]'];
   const COMPOSITE_UNIFORMS = ['u_scene', 'u_bg'];
@@ -383,6 +391,11 @@
       this._useQuad('shape');
       gl.enable(gl.BLEND);
       gl.uniform2f(u.u_resolution, width, height);
+
+      /* Square cells, so the field does not stretch with the aspect
+         ratio: one cell covers the same distance in x and y. */
+      const cells = Math.min(width, GRAIN_CELLS);
+      gl.uniform2f(u.u_grainScale, cells, cells * height / width);
 
       const aspect = width / height;
       this._texCursor = 0;
