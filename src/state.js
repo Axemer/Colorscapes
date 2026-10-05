@@ -15,9 +15,9 @@
 
   const BLEND_MODES = ['normal', 'add', 'screen', 'multiply'];
 
-  /* Ceiling for the scene blur, as a fraction of frame width. Past
-     this the kernel runs out of pairs and the radius stops growing,
-     so the slider is capped to match what the GPU can deliver. */
+  /* Ceiling for the scene blur, as a fraction of frame width. Past this
+     the kernel runs out of pairs and the radius stops growing, so the
+     slider is capped to match what the GPU can deliver. */
   const MAX_BLUR = 0.04;
 
   const DEFAULT_GRADIENT = {
@@ -46,15 +46,12 @@
     gradient: DEFAULT_GRADIENT,
   };
 
-  /* The numeric shape schema, in one table, shared by the normaliser
-     and the shape panel. Two limits live here on purpose and are not
-     the same numbers: `ui` is the range the slider offers, while
-     `min`/`max` is the hard clamp that keeps a hostile hash from
-     producing zero-area geometry or a 1/0 in the shader. `shapeMask`
-     in shaders.js mirrors the min columns.
-
-     The panel order is the schema order; nothing else may depend on
-     it (syncShapeInputs matches rows by data-key). */
+  /* The numeric shape schema, in one table, shared by the normaliser and
+     the shape panel. `ui` is the range the slider offers; `min`/`max` is
+     the hard clamp that keeps a hostile hash from producing zero-area
+     geometry or a 1/0 in the shader — `shapeMask` in shaders.js mirrors
+     the min columns. The panel order is the schema order; nothing else
+     may depend on it (syncShapeInputs matches rows by data-key). */
   const SHAPE_SCHEMA = [
     { key: 'x', label: 'X', step: 0.005, ui: [-1, 2] },
     { key: 'y', label: 'Y', step: 0.005, ui: [-1, 2] },
@@ -71,15 +68,15 @@
   const DEFAULT_STATE = {
     shapes: [clone(DEFAULT_SHAPE)],
     background: '#000000',
-    /* Scene-wide Gaussian, as a fraction of the frame width so a
-       preview and a 4K export smear by the same amount. */
+    /* Fraction of frame width, never pixels, so a preview and a 4K
+       export smear by the same amount. */
     blur: 0.012,
     exportW: 1920,
     exportH: 1080,
   };
 
-  /* Built-in presets are stored in the modern shape-list format.
-     Migration below also accepts the old shape/main/horiz/mix
+  /* Built-in presets are stored in the modern shape-list format;
+     migrateLegacy below still accepts the old shape/main/horiz/mix
      schema, so external hashes from before the upgrade keep working. */
   const BUILTIN_PRESETS = [
     {
@@ -268,8 +265,8 @@
     return normaliseInto(GS.state, raw);
   }
 
-  /* Hue-ramped gradient, brighter in the middle, reusable for
-     freshly-added shapes so they don't clone the selected one. */
+  /* Hue-ramped gradient, brighter in the middle, reused for freshly-added
+     shapes so they don't clone the selected one. */
   function randomGradient() {
     const baseHue = Math.random() * 360;
     const hueSpread = 60 + Math.random() * 180;

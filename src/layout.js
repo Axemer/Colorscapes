@@ -22,18 +22,18 @@
   const GRID_DIV = 4;
   const SUPER_STEPS = 96;
 
-  /* Invisible shapes keep a ghost outline, and a fully transparent
-     one keeps a faint fill: the layout view is a map of the scene,
-     not a second render of it, so it deliberately does NOT mirror
-     the renderer's opacity == 0 skip. */
+  /* Invisible shapes keep a ghost outline, and a fully transparent one keeps
+     a faint fill: the layout view is a map of the scene, not a second render
+     of it, so it deliberately does NOT mirror the renderer's opacity == 0
+     skip. */
   const HIDDEN_ALPHA = 0.22;
   const FILL_ALPHA = 0.85;
   const FILL_MIN_ALPHA = 0.08;
 
   let canvas = null;
   let ctx = null;
-  let drag = null; // move drag
-  let resizeDrag = null; // resize drag, from geom.startResize
+  let drag = null;
+  let resizeDrag = null;
 
   /* ---------- drawing ---------- */
 
@@ -61,12 +61,11 @@
     for (const shape of GS.state.shapes) drawShape(shape, w, h);
   }
 
-  /* The hit-test rotates world -> local, and the shader does the
-     same; drawing has to walk the other way, and the inverse of a
-     rotation matrix is its transpose — the sine swaps sign. Using the
-     forward matrix here mirrors every rotated outline against the WebGL
-     render (and against its own hit-test), which reads as the shape
-     being flipped. */
+  /* The hit-test rotates world -> local, and the shader does the same;
+     drawing has to walk the other way, and the inverse of a rotation matrix
+     is its transpose — the sine swaps sign. Using the forward matrix here
+     mirrors every rotated outline against the WebGL render (and against its
+     own hit-test), which reads as the shape being flipped. */
   function superellipsePath(ctx, cx, cy, rx, ry, n, rot) {
     const cr = Math.cos(rot), sr = -Math.sin(rot);
     ctx.beginPath();

@@ -1,25 +1,16 @@
 /* =========================================================
    Geometry
-   The single place that knows what a shape's numbers mean.
+   The single place that knows what a shape's numbers mean:
+   normalised UV against the export aspect (x/y are frame
+   fractions, w/h are fractions of width and height, rot is
+   degrees), and every hit-test, resize and handle position.
+   Nothing below is in pixels.
 
-   Shape geometry is normalised UV against the export aspect:
-   x/y are fractions of the frame, w/h are fractions of width and
-   height, rot is degrees. Nothing here is in pixels.
-
-   Every measurement — both hit-tests, both resize gestures, the
-   layout outlines, the handle positions — goes through this file.
-   That is deliberate: two hand-written copies of the superellipse
-   predicate is how the preview's resize grips ended up somewhere
-   other than the shape they belonged to.
-
-   ---------- local space ----------
-
-   "Local" is the shape's own frame: rotated by rot, with x scaled by
-   the aspect ratio. All distances are measured there, which is the
-   same frame the shader's shapeMask works in, and matching it is
-   why a hit-test agrees with the pixels. Aspect-corrected units
-   also make a resize a straight division instead of a tuned
-   constant: see applyResize.
+   "Local" is the shape's own frame — rotated by rot, with x scaled
+   by the aspect ratio. All distances are measured there, the same
+   frame shapeMask works in, which is why a hit-test agrees with the
+   pixels. Aspect-corrected units also make a resize a straight
+   division instead of a tuned constant: see applyResize.
 
    shapeMask in shaders.js is the hand-written mirror of
    superellipseDist below — same rotation direction, same clamps.
@@ -31,31 +22,24 @@
 
   const { clamp, deg2rad } = GS.utils;
 
-  /* ---------- constants ---------- */
-
   /* The eight resize grips, as signed offsets from the centre in the
-     shape's own axes. One array: it used to exist four times over,
-     and the preview's copy had quietly lost the rotation. */
+     shape's own axes. One array, because a second copy is how the
+     preview's grips ended up somewhere other than their shape. */
   const HANDLE_DIRS = [
     [-1, -1], [0, -1], [1, -1],
     [-1,  0],          [1,  0],
     [-1,  1], [0,  1], [1,  1],
   ];
 
-  /* Grip hit radius, in CSS pixels — the pointer's unit, not the
-     canvas backing store's, so a HiDPI screen does not halve it.
-     Both surfaces measure in CSS pixels for exactly this reason. */
+  /* Grip hit and draw radii, in CSS pixels — the pointer's unit, not the
+     canvas backing store's, so a HiDPI screen does not halve them. */
   const HANDLE_HIT = 10;
-
-  /* Drawn grip radius, also CSS pixels. */
   const HANDLE_SIZE = 5;
 
   /* Resize speed, in frames of width per CSS pixel of drag. 1 makes a
-     grip track the pointer exactly, which is the only value that
-     feels the same in a 300px panel and a 1600px one — the old
-     ladder tuned itself against canvas pixels and therefore against
-     panel width and devicePixelRatio. Raise it to make dragging
-     feel heavier, not to fix a bug. */
+     grip track the pointer exactly, the only value that feels the
+     same in a 300px panel and a 1600px one. Raise it to make
+     dragging feel heavier, not to fix a bug. */
   const RESIZE_GAIN = 1;
 
   const MIN_SIZE = 0.001;
@@ -67,13 +51,11 @@
   const MIN_ROUNDNESS = 0.01;
   const MIN_HALF = 1e-6;
 
-  /* ---------- frames ---------- */
-
   function aspect() {
     return GS.state.exportW / GS.state.exportH;
   }
 
-  /* world -> local. Rotation by +rot after the aspect scaling. */
+  /* world -> local */
   function toLocal(shape, u, v, ar) {
     const t = deg2rad(shape.rot);
     const px = (u - shape.x) * ar;
@@ -92,8 +74,6 @@
       shape.y - lx * sa + ly * ca,
     ];
   }
-
-  /* ---------- superellipse ---------- */
 
   /* 1.0 exactly on the outline, less inside, more outside. This is
      the CPU half of the contract with shapeMask. */
@@ -123,8 +103,6 @@
     return null;
   }
 
-  /* ---------- handles ---------- */
-
   /* Grip centres in UV, rotated with the shape. rectW/rectH are CSS
      pixels and only used for hit-testing: a UV distance is anisotropic
      on a non-square canvas, so it cannot be compared against a pixel
@@ -151,8 +129,6 @@
     return null;
   }
 
-  /* ---------- resize ---------- */
-
   /* Freeze everything the gesture needs, so applyResize never reads
      the shape back: mutating a shape mid-drag would make the deltas
      drift. */
@@ -173,12 +149,12 @@
     };
   }
 
-  /* Pure: reads the gesture and the pointer, returns the new pose.
+  /* Pure: reads the gesture and the pointer, returns the new pose,
+     including x/y because from-center moves the shape as well.
      mods.ratio locks the aspect ratio, mods.fromCenter pins the
-     opposite edge (alt). Returns everything the caller has to write,
-     including x/y, because from-center moves the shape as well. */
+     opposite edge (alt).
 
-  /* The width follows the dragged edge one-to-one: local units are
+     The dragged edge follows the pointer one-to-one: local units are
      aspect-corrected, so a drag of dlx is dlx/ar in width units and a
      half-extent change of that is a width change of twice it. No
      canvas size appears in that, which is the whole point. */
@@ -186,9 +162,9 @@
     const shape = rd.shape;
     const [lx, ly] = toLocal(shape, u, v, rd.ar);
 
-    /* The gesture works in the same clamped size domain as the
-       normaliser, so a shape stored at w = 0 has a finite starting
-       ratio instead of 0/0 and the lock below cannot produce NaN. */
+    /* Work in the same clamped size domain as the normaliser, so a
+       shape stored at w = 0 has a finite starting ratio instead of
+       0/0 and the lock below cannot produce NaN. */
     const startW = clamp(rd.startW, MIN_SIZE, MAX_SIZE);
     const startH = clamp(rd.startH, MIN_SIZE, MAX_SIZE);
 

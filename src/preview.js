@@ -77,8 +77,8 @@
   /* ---------- hit-test ---------- */
 
   /* The predicate, the grip positions and the resize maths all live in
-     geom.js: this surface and the layout canvas have to agree about
-     where a shape is, and two hand-written copies did not. */
+     geom.js: this surface and the layout canvas have to agree about where
+     a shape is, and two hand-written copies did not. */
 
   function toUV(e) {
     const canvas = GS.byId('preview');

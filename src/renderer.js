@@ -9,12 +9,10 @@
      composite -> canvas      scene over the background colour
 
    Blurring after the shapes have merged is the whole point: two
-   overlapping figures cross-fade into a real third colour and
-   then that single image is smeared, instead of each shape being
-   smeared on its own and stacked afterwards. The two blur passes
-   are skipped entirely when the radius is zero.
-
-   Gradient textures are pooled and reused across draws.
+   overlapping figures cross-fade into a real third colour and then
+   that single image is smeared, instead of each shape being smeared
+   on its own and stacked afterwards. The two blur passes are skipped
+   entirely when the radius is zero.
    ========================================================= */
 
 (function (GS) {
@@ -27,21 +25,20 @@
   const GRAD_TEX_WIDTH = 1024;
   const MAX_PAIRS = GS.shaders.BLUR_PAIRS;
 
-  /* Below this the blur is switched off rather than snapped up to
-     the kernel's own resolution, so a 0 slider really means 0. */
+  /* Below this the blur is switched off rather than snapped up to the
+     kernel's own resolution, so a 0 slider really means 0. */
   const MIN_BLUR_RADIUS = 0.2;
 
-  /* The blur chain may run on a smaller buffer: a wide Gaussian
-     hides the resolution it is sampled at, and this is what keeps
-     the cost flat as the radius grows instead of quadratic. */
+  /* The blur chain may run on a smaller buffer: a wide Gaussian hides
+     the resolution it is sampled at, and this is what keeps the cost
+     flat as the radius grows instead of quadratic. */
   const MIN_BLUR_SCALE = 0.03;
 
-  /* Grain is sized in cells across the frame width, not in pixels,
-     so the preview and an export show the same grain instead of an
-     export that is four times finer than what was approved. Capped
-     at the frame's own pixel count: below the cap a cell is one
-     pixel (plain film grain, no interpolation to alias), above it
-     the cell grows with the frame. */
+  /* Grain is sized in cells across the frame width, not in pixels, so
+     the preview and an export show the same grain instead of an export
+     four times finer than what was approved. Capped at the frame's own
+     pixel count: below the cap a cell is one pixel (plain film grain,
+     nothing to alias), above it the cell grows with the frame. */
   const GRAIN_CELLS = 1024;
 
   const SHAPE_UNIFORMS = [
@@ -99,9 +96,9 @@
     return out;
   }
 
-  /* Approximations of the four blend modes we expose. All four
-     consume premultiplied source, and the scene target is cleared
-     to transparent black, so 'normal' is a true over-operator. */
+  /* Approximations of the four blend modes we expose. All four consume
+     premultiplied source, and the scene target is cleared to transparent
+     black, so 'normal' is a true over-operator. */
   function applyBlend(gl, mode) {
     switch (mode) {
       case 'add':
@@ -118,15 +115,13 @@
     }
   }
 
-  /* ---------- separable Gaussian kernel ---------- */
-
   const kernelOffsets = new Float32Array(MAX_PAIRS);
   const kernelWeights = new Float32Array(MAX_PAIRS + 1);
 
   /* Integer taps 1..2N per side, folded into N mirrored pairs at
      half-texel offsets (1.5, 3.5, 5.5 …) where GL_LINEAR returns the
-     exact average of the two texels. sigmaU puts the outermost tap
-     at ~3 sigma, the usual truncation point. */
+     exact average of the two texels. sigmaU puts the outermost tap at
+     ~3 sigma, the usual truncation point. */
   function buildKernel(pairs) {
     const sigmaU = (2 * pairs) / 3;
     const denom = 2 * sigmaU * sigmaU;
@@ -376,7 +371,6 @@
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
-    /* stage 1 — every shape, blended into one transparent image */
     _drawShapes(state, width, height) {
       const gl = this.gl;
       const u = this.shapeU;
@@ -407,7 +401,6 @@
       }
     }
 
-    /* stages 2 and 3 — separable Gaussian over the merged scene */
     _blurScene(radiusPx, width, height) {
       const gl = this.gl;
       const u = this.blurU;
@@ -444,7 +437,7 @@
       return this.blurB;
     }
 
-    /* stage 4 — the only place the background colour appears */
+    /* the only place the background colour appears */
     _composite(state, source) {
       const gl = this.gl;
       const u = this.compU;

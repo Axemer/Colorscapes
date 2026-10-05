@@ -13,9 +13,9 @@
 
    The vertex shader is plain clip space -> texture space, y up, and
    deliberately does NOT flip: the blur and composite passes work in
-   texture space and a flip there would put the image upside down for
-   no reason. Only the shape pass authors in image space, so it flips
-   itself in main() and owns that decision alone.
+   texture space and a flip there would put the image upside down.
+   Only the shape pass authors in image space, so it flips itself and
+   owns that decision alone.
 
    shapeMask below is the hand-written mirror of the CPU predicate in
    geom.js (superellipseDist). Same rotation direction, same clamps —
@@ -36,9 +36,6 @@
 attribute vec2 a_pos;
 varying vec2 v_uv;
 void main(){
-  /* Clip space -> texture space, y up. Untouched from the naive
-     mapping: the blur and composite passes want it, and the shape
-     pass flips itself when it starts thinking in image space. */
   v_uv = a_pos * 0.5 + 0.5;
   gl_Position = vec4(a_pos, 0.0, 1.0);
 }
@@ -64,34 +61,22 @@ uniform sampler2D u_gradTex;
 uniform float u_gradAngle;
 uniform float u_gradExtent;
 
-
-/* ---------------------------------------------------------
-   Hash
-   --------------------------------------------------------- */
-
-/* Precision-safe float hash, Hoskins-style. The usual
-   fract(p * bigConst) shape collapses at export sizes: at
-   5120px across the product reaches ~630k, where a float32 step
-   is already 1/16, so the input lattice falls to a couple of
-   hundred states and the field tiles visibly. Scaling by a small
-   constant keeps every product under 1024 and leaves the whole
-   mantissa to the mixing. */
+/* Precision-safe float hash. The usual fract(p * bigConst) shape
+   collapses at export sizes: at 5120px across the product reaches
+   ~630k, where a float32 step is already 1/16, so the input lattice
+   falls to a couple of hundred states and the field tiles visibly.
+   Scaling by a small constant keeps every product under 1024. */
 float hash21(vec2 p){
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
   p3 += dot(p3, p3.yzx + 33.33);
   return fract((p3.x + p3.y) * p3.z);
 }
 
-
-/* ---------------------------------------------------------
-   Grain
-   --------------------------------------------------------- */
-
-/* Value noise: one hash per lattice corner, smoothstepped
-   between them. Interpolating is what lets a cell be a fraction
-   of the frame instead of a single pixel, so a 4K export carries
-   the same grain the preview showed rather than the same one
-   pixel four thousand times. */
+/* Value noise: one hash per lattice corner, smoothstepped between
+   them. Interpolating is what lets a cell be a fraction of the frame
+   instead of a single pixel, so a 4K export carries the same grain
+   the preview showed rather than the same one pixel four thousand
+   times. */
 float valueNoise(vec2 p){
   vec2 i = floor(p);
   vec2 f = p - i;
@@ -110,10 +95,9 @@ float valueNoise(vec2 p){
    is turned off-axis by ~31.7°, otherwise the interpolation grid
    lines up with the pixel rows and shows through as a mesh.
 
-   The 1.6 puts the sum back at the standard deviation of the old
+   The 1.6 puts the sum back at the standard deviation of a plain
    per-pixel field, so the slider keeps meaning the same amount of
-   noise; the two terms are decorrelated enough that half and half
-   reads the same roughness at 800px and at 5K. */
+   noise at 800px and at 5K. */
 float grainField(vec2 uv){
   vec2 q = uv * u_grainScale;
   q = vec2(
@@ -126,11 +110,6 @@ float grainField(vec2 uv){
 
   return (structured + crisp) * 0.5 * 1.6;
 }
-
-
-/* ---------------------------------------------------------
-   Shape mask
-   --------------------------------------------------------- */
 
 float shapeMask(vec2 uv){
   float aspect = u_resolution.x / u_resolution.y;
@@ -173,11 +152,6 @@ float shapeMask(vec2 uv){
   return 1.0 - st;
 }
 
-
-/* ---------------------------------------------------------
-   Gradient
-   --------------------------------------------------------- */
-
 vec3 gradientColor(vec2 uv){
   vec2 gDir = vec2(
     cos(u_gradAngle),
@@ -201,11 +175,6 @@ vec3 gradientColor(vec2 uv){
   ).rgb * u_glow;
 }
 
-
-/* ---------------------------------------------------------
-   Main
-   --------------------------------------------------------- */
-
 void main(){
 
   /* Shape geometry, gradient angle and grain are all authored in
@@ -225,13 +194,11 @@ void main(){
 
   float alpha = mask * u_opacity;
 
-  /*
-   * Premultiplied output. This is what makes the blur correct:
-   * the separable pass convolves (R*A, G*A, B*A, A) as one vector,
-   * and GL_LINEAR then interpolates already-multiplied colour, so a
-   * fading edge carries its own hue instead of bleeding the
-   * background through it.
-   */
+  /* Premultiplied output is what makes the blur correct: the
+     separable pass convolves (R*A, G*A, B*A, A) as one vector, and
+     GL_LINEAR then interpolates already-multiplied colour, so a
+     fading edge carries its own hue instead of bleeding the
+     background through it. */
   gl_FragColor = vec4(
     color * alpha,
     alpha

@@ -1,9 +1,8 @@
 /* =========================================================
    Color
-   Hex <-> RGB conversions and HSL generation for the
-   randomisers. Gradient interpolation lives in gradient.js,
-   which keeps its own OkLab copy so the sampling hot path has
-   no cross-module calls; nothing here needs to know about it.
+   Hex <-> RGB conversions and HSL generation for the randomisers.
+   Gradient interpolation lives in gradient.js, which keeps its own
+   OkLab copy so the sampling hot path has no cross-module calls.
    ========================================================= */
 
 (function (GS) {

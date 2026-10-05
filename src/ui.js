@@ -12,8 +12,6 @@
   const { clamp, clone } = GS.utils;
   const gradient = GS.gradient;
 
-  /* The numeric shape rows come straight from the state schema, so the
-     panel cannot drift from what normaliseShape accepts. */
   const SHAPE_SCHEMA = GS.SHAPE_SCHEMA;
 
   const PANEL_TARGETS = [
@@ -22,9 +20,9 @@
   ];
 
   /* The blur lives on the scene, not on a shape, and is stored as a
-     fraction of the frame width. The slider speaks percent, and the
-     hint underneath translates it into the pixels the current export
-     size will actually get. */
+     fraction of the frame width. The slider speaks percent, and the hint
+     underneath translates it into the pixels the current export size
+     will actually get. */
   const BLUR_STEP_PCT = 0.05;
 
   const SIZE_PRESETS = [
@@ -58,9 +56,9 @@
   function makeControl(parent, opts) {
     const { label, min, max, step, value, onChange, key } = opts;
     const row = el('div', 'ctrl');
-    /* Row identity travels with the DOM, not with its position, so a
-       schema row can be reordered or interleaved without breaking the
-       control the preview writes back into. */
+    /* Row identity travels with the DOM, not with its position, so a schema
+       row can be reordered or interleaved without breaking the control the
+       preview writes back into. */
     if (key) row.dataset.key = key;
     row.appendChild(el('label', null, label));
 
@@ -119,9 +117,9 @@
   let stripDrag = null;
   const STRIP_SAMPLES = 24;
 
-  /* The strip mirrors the renderer, so it is sampled through the
-     same OKLab mix instead of a CSS gradient — browsers interpolate
-     those in sRGB and would show a harsher ramp than the preview. */
+  /* The strip mirrors the renderer, so it is sampled through the same
+     OkLab mix instead of a CSS gradient — browsers interpolate those in
+     sRGB and would show a harsher ramp than the preview. */
   function stripBackground(stops) {
     const list = gradient.sortStops(stops);
     if (!list.length) return 'none';
@@ -200,7 +198,6 @@
       handle.style.left = (pos * 100) + '%';
       handle.title = percent(pos);
 
-      // live re-tint of the strip background
       strip.style.background = stripBackground(shape.gradient.stops);
 
       GS.preview.schedule();
@@ -259,9 +256,9 @@
     }));
   }
 
-  /* Colour order is position order, so "reorder" means giving the
-     dragged stop the slot of the row it landed on: the positions
-     stay put and the colours swap places between them. */
+  /* Colour order is position order, so "reorder" means giving the dragged
+     stop the slot of the row it landed on: the positions stay put and
+     the colours swap places between them. */
   function reorderStops(stops, from, to) {
     const list = gradient.sortStops(stops);
     const positions = list.map(s => s.pos);
@@ -294,8 +291,8 @@
       GS.preview.schedule();
     });
 
-    /* Rows are shown in position order, so anything that can move a
-       stop past its neighbour is re-sorted once the gesture ends. */
+    /* Rows are shown in position order, so anything that can move a stop
+       past its neighbour is re-sorted once the gesture ends. */
     container.addEventListener('change', () => {
       const shape = GS.getSelectedShape();
       if (!shape) return;
@@ -330,10 +327,9 @@
       .forEach(r => r.classList.remove('drop-before', 'drop-after'));
   }
 
-  /* One implementation for both reorderable lists. Native HTML5 DnD
-     would fight the range inputs, so rows are picked up by their grip,
-     a marker shows which slot is targeted and the swap happens on
-     release.
+  /* One implementation for both reorderable lists. Native HTML5 DnD would
+     fight the range inputs, so rows are picked up by their grip, a marker
+     shows which slot is targeted and the swap happens on release.
 
      opts.row       selector for a draggable row
      opts.onStart   (row, grip) -> source index, or null to refuse
@@ -399,9 +395,9 @@
   }
 
   /* Stops are always shown in position order, so dragging one past its
-     neighbour cannot mean "insert a new stop" — it means the dragged
-     stop takes the slot it landed on, which reorderStops expresses as
-     swapping colours between positions that stay put. */
+     neighbour cannot mean "insert a new stop" — it means the dragged stop
+     takes the slot it landed on, which reorderStops expresses as swapping
+     colours between positions that stay put. */
   function bindStopReorder(container) {
     bindReorder(container, {
       row: '.stop',
@@ -479,9 +475,9 @@
     list.addEventListener('click', e => {
       const item = e.target.closest('.shape-item');
       if (!item) return;
-      /* The grip owns its own gesture (pick up on pointerdown, drop
-         on release); letting the synthetic click through as well
-         would just re-select and rebuild the same panels twice. */
+      /* The grip owns its own gesture (pick up on pointerdown, drop on
+         release); letting the synthetic click through as well would just
+         re-select and rebuild the same panels twice. */
       if (e.target.closest('.grip')) return;
       const shape = GS.state.shapes.find(s => s.id === item.dataset.id);
       if (!shape) return;
@@ -504,11 +500,11 @@
     bindShapeReorder(list);
   }
 
-  /* Shapes paint in array order, so the list order *is* the Z-order:
-     the first row is the bottom-most layer. Reordering here moves whole
-     shape objects rather than swapping colours in fixed positions —
-     that trick is only correct for gradient stops, whose positions are
-     part of the schema. */
+  /* Shapes paint in array order, so the list order *is* the Z-order: the
+     first row is the bottom-most layer. Reordering here moves whole shape
+     objects rather than swapping colours in fixed positions — that trick
+     is only correct for gradient stops, whose positions are part of the
+     schema. */
   function moveShape(from, to) {
     if (from === to) return;
     const shapes = GS.state.shapes;
@@ -524,10 +520,10 @@
         return from < 0 ? null : from;
       },
       onGrab: row => {
-        /* Grabbing a row picks it, like every other layer panel. The
-           list itself must not be rebuilt here — it would replace the
-           row under the pointer mid-gesture — so the highlight is
-           toggled in place and only the sibling panels are refreshed. */
+        /* Grabbing a row picks it, like every other layer panel. The list
+           itself must not be rebuilt here — it would replace the row under
+           the pointer mid-gesture — so the highlight is toggled in place
+           and only the sibling panels are refreshed. */
         if (GS.selection.id === row.dataset.id) return;
         GS.selection.id = row.dataset.id;
         list.querySelectorAll('.shape-item').forEach(r => {
